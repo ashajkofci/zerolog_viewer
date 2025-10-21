@@ -25,9 +25,28 @@ The viewer is optimized for large log files:
 - **Memory efficient**: Only displays visible rows in the UI
 - **100MB+ files**: Tested with files containing 50,000+ entries
 
+## Quick Start
+
+### Try It Now
+
+```bash
+# Run the app directly from source
+python zerolog_viewer.py
+
+# Click "Open File" and select sample_logs.jsonl
+# You should see 6 colored log entries!
+```
+
+### What to Try
+
+1. **Sort**: Click the "level" column header → logs sort by level
+2. **Search**: Type "error" in search box → only error logs show
+3. **Resize**: Drag column borders to adjust width
+4. **Clear**: Click "Clear" to show all logs again
+
 ## Installation
 
-### Using Pre-built Packages (Recommended)
+### Option 1: Pre-built Packages (Recommended)
 
 Download the latest release for your platform from the [Releases](https://github.com/ashajkofci/zerolog_viewer/releases) page:
 
@@ -46,7 +65,7 @@ Download the latest release for your platform from the [Releases](https://github
   - No installation required
   - Portable - can be run from any location
 
-### Running from Source
+### Option 2: Run from Source
 
 If you prefer to run from source:
 
@@ -60,6 +79,21 @@ pip install -r requirements.txt
 
 # Run the application
 python zerolog_viewer.py
+```
+
+### Option 3: Build Your Own Executable
+
+```bash
+# Install PyInstaller and dependencies
+pip install -r requirements.txt
+
+# Build executable
+pyinstaller --onefile --windowed --name zerolog_viewer zerolog_viewer.py
+
+# Run the executable
+./dist/zerolog_viewer  # Linux/Mac
+# or
+dist\zerolog_viewer.exe  # Windows
 ```
 
 ## Usage
@@ -127,18 +161,104 @@ Logs are automatically color-coded based on their level:
 - 🔴 **Error**: Red
 - ⚫ **Fatal/Panic**: Dark Red
 
-## Building from Source
 
-To create your own executable:
 
+## Creating a Release
+
+There are two ways to create a new release:
+
+### Method 1: Workflow Dispatch (Recommended) ⭐
+
+1. Go to the **Actions** tab in GitHub
+2. Select **"Build and Release"** workflow
+3. Click **"Run workflow"** button
+4. Choose version bump type from dropdown:
+   - **patch**: Bug fixes (0.2.0 → 0.2.1)
+   - **minor**: New features (0.2.0 → 0.3.0)
+   - **major**: Breaking changes (0.2.0 → 1.0.0)
+5. Click **"Run workflow"**
+
+The workflow will automatically:
+- ✅ Run all tests
+- ✅ Bump the version in the VERSION file
+- ✅ Commit and push version change
+- ✅ Create and push git tag
+- ✅ Build packages for all platforms:
+  - **Linux**: DEB package with desktop integration
+  - **macOS**: DMG installer with app bundle
+  - **Windows**: Standalone executable
+- ✅ Create a GitHub release with all artifacts
+
+**Total time:** ~10-15 minutes
+
+### Method 2: Manual Tag Push
+
+1. Update the VERSION file manually:
+   ```bash
+   echo "0.3.0" > VERSION
+   ```
+2. Commit the change:
+   ```bash
+   git add VERSION
+   git commit -m "Bump version to 0.3.0"
+   ```
+3. Create and push tag:
+   ```bash
+   git tag v0.3.0
+   git push origin main
+   git push origin v0.3.0
+   ```
+
+GitHub Actions will automatically build and release.
+
+### Version Management
+
+Versions follow semantic versioning and are stored in the `VERSION` file:
+
+- **Patch** (0.2.0 → 0.2.1): Bug fixes and minor updates
+- **Minor** (0.2.0 → 0.3.0): New features, backwards compatible
+- **Major** (0.2.0 → 1.0.0): Breaking changes
+
+### Troubleshooting Releases
+
+**Workflow Failed?**
+1. Check the Actions tab for error logs
+2. Look at the specific job that failed
+3. Common issues:
+   - Tests failed → Fix tests first
+   - Build failed → Check dependencies
+   - Permission denied → Check repository settings
+
+**Need to Cancel?**
+- Go to Actions tab
+- Click on the running workflow
+- Click "Cancel workflow"
+
+**Delete a Release:**
 ```bash
-# Install dependencies including build tools
-pip install -r requirements.txt
+# Delete tag locally and remotely
+git tag -d vX.Y.Z
+git push origin :refs/tags/vX.Y.Z
 
-# Build the executable
-pyinstaller --onefile --windowed --name zerolog_viewer zerolog_viewer.py
+# Delete release on GitHub
+# Go to Releases → Click on the release → Delete
+```
 
-# The executable will be in the dist/ folder
+## Troubleshooting
+
+### Common Issues
+
+**"python: command not found"**
+- Try `python3` instead of `python`
+
+**"No module named 'tkinter'"**
+- Ubuntu/Debian: `sudo apt-get install python3-tk`
+- macOS: tkinter included with Python
+- Windows: tkinter included with Python
+
+**"pyinstaller: command not found"**
+```bash
+pip install pyinstaller
 ```
 
 ## Development
@@ -148,6 +268,14 @@ pyinstaller --onefile --windowed --name zerolog_viewer zerolog_viewer.py
 - Python 3.8 or higher
 - tkinter (usually included with Python)
 - tkinterdnd2 (for drag and drop support)
+
+### Technical Details
+
+- **Language:** Python 3.8+
+- **GUI Framework:** tkinter (built-in, cross-platform)
+- **Build Tool:** PyInstaller
+- **CI/CD:** GitHub Actions
+- **Testing:** unittest + custom CLI tests
 
 ### Running Tests
 
