@@ -1539,7 +1539,7 @@ class ZeroLogViewer:
         # License
         ttk.Label(content_frame, text="License:", 
                  font=('TkDefaultFont', 9, 'bold')).pack(anchor='w')
-        ttk.Label(content_frame, text="BSD License", 
+        ttk.Label(content_frame, text="BSD 3-Clause License", 
                  font=('TkDefaultFont', 9)).pack(anchor='w', pady=(0, 20))
         
         # Close button
