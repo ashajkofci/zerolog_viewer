@@ -345,9 +345,9 @@ class LogTab:
         # Update status
         total = len(logs_to_display)
         if end_index < total:
-            self.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
+            self.app.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
         else:
-            self.status_var.set(f"Showing all {total:,} log entries")
+            self.app.status_var.set(f"Showing all {total:,} log entries")
         self.current_page = 0
     
     def on_scroll(self, event):
@@ -380,9 +380,9 @@ class LogTab:
         # Update status
         total = len(logs_to_display)
         if end_index < total:
-            self.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
+            self.app.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
         else:
-            self.status_var.set(f"Showing all {total:,} log entries")
+            self.app.status_var.set(f"Showing all {total:,} log entries")
     
     def sort_by_column(self, column: str):
         """Sort the treeview by the specified column."""
@@ -414,7 +414,7 @@ class LogTab:
         
         # Update status
         direction = "descending" if self.sort_reverse else "ascending"
-        self.status_var.set(f"Sorted by '{column}' ({direction})")
+        self.app.status_var.set(f"Sorted by '{column}' ({direction})")
     
     def apply_search(self, search_text: str):
         """Apply search filter to logs."""
@@ -423,7 +423,7 @@ class LogTab:
         if not search_text:
             self.filtered_logs = []
             self.display_logs()
-            self.status_var.set(f"Showing all {len(self.logs):,} log entries")
+            self.app.status_var.set(f"Showing all {len(self.logs):,} log entries")
             return
         
         # Filter logs containing search text in any field
@@ -435,7 +435,7 @@ class LogTab:
                     break
         
         self.display_logs()
-        self.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries")
+        self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries")
     
     def apply_date_filter(self):
         """Apply date range filter to logs."""
@@ -486,7 +486,7 @@ class LogTab:
             if date_to:
                 date_range.append(f"to {date_to_str}")
             
-            self.status_var.set(f"Date filtered: {len(self.logs):,} entries {' '.join(date_range)}")
+            self.app.status_var.set(f"Date filtered: {len(self.logs):,} entries {' '.join(date_range)}")
             
         except Exception as e:
             messagebox.showerror("Date Filter Error", f"Invalid date format: {str(e)}\nUse ISO 8601 format (e.g., 2025-10-20T17:19:16Z)")
@@ -498,7 +498,7 @@ class LogTab:
         self.logs = self.all_logs.copy()
         self.filtered_logs = []
         self.display_logs()
-        self.status_var.set(f"Date filter cleared. Showing all {len(self.logs):,} entries")
+        self.app.status_var.set(f"Date filter cleared. Showing all {len(self.logs):,} entries")
 
 
 

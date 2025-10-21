@@ -19,7 +19,7 @@ sys.modules['tkinter.ttk'] = Mock()
 sys.modules['tkinter.filedialog'] = Mock()
 sys.modules['tkinter.messagebox'] = Mock()
 
-from zerolog_viewer import ZeroLogViewer
+from zerolog_viewer import ZeroLogViewer, ConfigManager
 
 
 class TestZeroLogViewer(unittest.TestCase):
@@ -46,12 +46,15 @@ class TestZeroLogViewer(unittest.TestCase):
         ]
     
     def test_level_colors_defined(self):
-        """Test that level colors are properly defined."""
-        self.assertIn('debug', ZeroLogViewer.LEVEL_COLORS)
-        self.assertIn('info', ZeroLogViewer.LEVEL_COLORS)
-        self.assertIn('warn', ZeroLogViewer.LEVEL_COLORS)
-        self.assertIn('error', ZeroLogViewer.LEVEL_COLORS)
-        self.assertIn('fatal', ZeroLogViewer.LEVEL_COLORS)
+        """Test that level colors are properly defined in config."""
+        # Level colors are now stored in config, not as class attribute
+        config = ConfigManager.load_config()
+        level_colors = config.get('level_colors', {})
+        self.assertIn('debug', level_colors)
+        self.assertIn('info', level_colors)
+        self.assertIn('warn', level_colors)
+        self.assertIn('error', level_colors)
+        self.assertIn('fatal', level_colors)
     
     def test_log_parsing(self):
         """Test JSONL parsing functionality."""
