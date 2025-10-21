@@ -37,9 +37,14 @@ Download the latest release for your platform from the [Releases](https://github
 - **macOS DMG**: `zerolog-viewer-X.X.X.dmg`
   - Mount the DMG and drag to Applications folder
   - Includes proper app bundle
-- **Windows EXE**: `zerolog_viewer-windows-amd64.exe`
+- **Windows Installer**: `zerolog-viewer-X.X.X-installer.exe`
+  - Run the installer to install to Program Files
+  - Creates Start Menu shortcuts and optionally Desktop shortcut
+  - Optional .jsonl file association for double-click opening
+- **Windows Standalone EXE**: `zerolog_viewer-windows-amd64.exe`
   - Download and run directly
   - No installation required
+  - Portable - can be run from any location
 
 ### Running from Source
 
@@ -178,7 +183,7 @@ There are two ways to create a new release:
    - Build packages for all platforms:
      - **Linux**: DEB package
      - **macOS**: DMG installer
-     - **Windows**: Standalone executable
+     - **Windows**: Installer (with Start Menu shortcuts) and standalone executable
    - Create a GitHub release with all artifacts
 
 ### Method 2: Git Tag Push

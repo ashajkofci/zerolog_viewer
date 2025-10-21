@@ -140,11 +140,39 @@ jobs:
       run: |
         pyinstaller --onefile --windowed --name zerolog_viewer zerolog_viewer.py
     
-    - name: Upload artifact
+    - name: Get version
+      id: get_version
+      shell: bash
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          echo "version=${{ needs.version.outputs.new_version }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Install NSIS
+      run: |
+        choco install nsis -y
+        $env:PATH = "C:\Program Files (x86)\NSIS;$env:PATH"
+        [System.Environment]::SetEnvironmentVariable('PATH', $env:PATH, [System.EnvironmentVariableTarget]::Machine)
+    
+    - name: Build installer with NSIS
+      shell: cmd
+      run: |
+        set VERSION=${{ steps.get_version.outputs.version }}
+        "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=%VERSION% installer.nsi
+    
+    - name: Upload standalone EXE artifact
       uses: actions/upload-artifact@v4
       with:
         name: zerolog_viewer-windows-amd64.exe
         path: dist/zerolog_viewer.exe
+    
+    - name: Upload installer artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: zerolog-viewer-${{ steps.get_version.outputs.version }}-installer.exe
+        path: zerolog-viewer-${{ steps.get_version.outputs.version }}-installer.exe
 
   build-linux:
     name: Build Linux DEB
@@ -375,7 +403,10 @@ jobs:
             - Install with: `sudo dpkg -i zerolog-viewer-${{ steps.get_version.outputs.version }}-amd64.deb`
           - **macOS DMG**: `zerolog-viewer-${{ steps.get_version.outputs.version }}.dmg`
             - Mount and drag to Applications folder
-          - **Windows EXE**: `zerolog_viewer-windows-amd64.exe`
-            - Download and run directly
+          - **Windows Installer**: `zerolog-viewer-${{ steps.get_version.outputs.version }}-installer.exe`
+            - Run the installer to install to Program Files with Start Menu shortcuts
+            - Includes optional .jsonl file association
+          - **Windows Standalone EXE**: `zerolog_viewer-windows-amd64.exe`
+            - Download and run directly without installation
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
