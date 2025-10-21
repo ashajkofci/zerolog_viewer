@@ -6,10 +6,15 @@ on:
       - 'v*'
   workflow_dispatch:
     inputs:
-      version:
-        description: 'Version number (e.g., v1.0.0)'
+      version_bump:
+        description: 'Version bump type'
         required: true
-        default: 'v0.1.0'
+        type: choice
+        options:
+          - patch
+          - minor
+          - major
+        default: 'patch'
   pull_request:
     branches:
       - main
@@ -44,28 +49,82 @@ jobs:
       run: |
         python -m pytest test_cli.py -v
 
-  build:
-    name: Build on ${{ matrix.os }}
-    runs-on: ${{ matrix.os }}
+  version:
+    name: Bump Version
+    runs-on: ubuntu-latest
     needs: test
-    if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
-    strategy:
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            artifact_name: zerolog_viewer
-            asset_name: zerolog_viewer-linux-amd64
-          - os: windows-latest
-            artifact_name: zerolog_viewer.exe
-            asset_name: zerolog_viewer-windows-amd64.exe
-          - os: macos-latest
-            artifact_name: zerolog_viewer
-            asset_name: zerolog_viewer-macos-amd64
+    if: github.event_name == 'workflow_dispatch'
+    outputs:
+      new_version: ${{ steps.bump.outputs.new_version }}
+      new_tag: ${{ steps.bump.outputs.new_tag }}
     
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Bump version
+      id: bump
+      run: |
+        # Read current version
+        CURRENT_VERSION=$(cat VERSION)
+        echo "Current version: $CURRENT_VERSION"
+        
+        # Parse version
+        IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
+        
+        # Bump version based on input
+        case "${{ github.event.inputs.version_bump }}" in
+          major)
+            MAJOR=$((MAJOR + 1))
+            MINOR=0
+            PATCH=0
+            ;;
+          minor)
+            MINOR=$((MINOR + 1))
+            PATCH=0
+            ;;
+          patch)
+            PATCH=$((PATCH + 1))
+            ;;
+        esac
+        
+        NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+        NEW_TAG="v${NEW_VERSION}"
+        
+        echo "New version: $NEW_VERSION"
+        echo "New tag: $NEW_TAG"
+        
+        # Update VERSION file
+        echo "$NEW_VERSION" > VERSION
+        
+        # Configure git
+        git config user.name "github-actions[bot]"
+        git config user.email "github-actions[bot]@users.noreply.github.com"
+        
+        # Commit and tag
+        git add VERSION
+        git commit -m "Bump version to $NEW_VERSION"
+        git tag "$NEW_TAG"
+        git push origin HEAD:${{ github.ref_name }}
+        git push origin "$NEW_TAG"
+        
+        # Set outputs
+        echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+        echo "new_tag=$NEW_TAG" >> $GITHUB_OUTPUT
+
+  build-windows:
+    name: Build Windows
+    runs-on: windows-latest
+    needs: [test, version]
+    if: always() && (needs.test.result == 'success') && (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && needs.version.result == 'success'))
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event_name == 'workflow_dispatch' && needs.version.outputs.new_tag || github.ref }}
     
     - name: Set up Python
       uses: actions/setup-python@v5
@@ -77,44 +136,232 @@ jobs:
         python -m pip install --upgrade pip
         pip install -r requirements.txt
     
-    - name: Build executable with PyInstaller (Linux/macOS)
-      if: runner.os != 'Windows'
-      run: |
-        pyinstaller --onefile --windowed --name zerolog_viewer zerolog_viewer.py
-    
-    - name: Build executable with PyInstaller (Windows)
-      if: runner.os == 'Windows'
+    - name: Build executable with PyInstaller
       run: |
         pyinstaller --onefile --windowed --name zerolog_viewer zerolog_viewer.py
     
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: ${{ matrix.asset_name }}
-        path: dist/${{ matrix.artifact_name }}
+        name: zerolog_viewer-windows-amd64.exe
+        path: dist/zerolog_viewer.exe
+
+  build-linux:
+    name: Build Linux DEB
+    runs-on: ubuntu-latest
+    needs: [test, version]
+    if: always() && (needs.test.result == 'success') && (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && needs.version.result == 'success'))
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event_name == 'workflow_dispatch' && needs.version.outputs.new_tag || github.ref }}
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+    
+    - name: Build executable with PyInstaller
+      run: |
+        pyinstaller --onefile --windowed --name zerolog_viewer zerolog_viewer.py
     
     - name: Get version
       id: get_version
-      shell: bash
       run: |
         if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
-          echo "version=${{ github.event.inputs.version }}" >> $GITHUB_OUTPUT
+          echo "version=${{ needs.version.outputs.new_version }}" >> $GITHUB_OUTPUT
         else
-          echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
         fi
     
+    - name: Create DEB package
+      run: |
+        VERSION="${{ steps.get_version.outputs.version }}"
+        mkdir -p zerolog-viewer_${VERSION}_amd64/usr/local/bin
+        mkdir -p zerolog-viewer_${VERSION}_amd64/DEBIAN
+        mkdir -p zerolog-viewer_${VERSION}_amd64/usr/share/applications
+        mkdir -p zerolog-viewer_${VERSION}_amd64/usr/share/pixmaps
+        
+        # Copy binary
+        cp dist/zerolog_viewer zerolog-viewer_${VERSION}_amd64/usr/local/bin/
+        chmod +x zerolog-viewer_${VERSION}_amd64/usr/local/bin/zerolog_viewer
+        
+        # Create control file
+        cat > zerolog-viewer_${VERSION}_amd64/DEBIAN/control << EOF
+        Package: zerolog-viewer
+        Version: ${VERSION}
+        Section: utils
+        Priority: optional
+        Architecture: amd64
+        Maintainer: ZeroLog Viewer Team <noreply@github.com>
+        Description: Cross-platform GUI for viewing JSONL logs
+         A cross-platform GUI application for viewing and analyzing JSONL
+         (JSON Lines) log files, specifically designed for zerolog format
+         but compatible with any JSONL format.
+        EOF
+        
+        # Create desktop file
+        cat > zerolog-viewer_${VERSION}_amd64/usr/share/applications/zerolog-viewer.desktop << EOF
+        [Desktop Entry]
+        Type=Application
+        Name=ZeroLog Viewer
+        Comment=View and analyze JSONL log files
+        Exec=/usr/local/bin/zerolog_viewer
+        Terminal=false
+        Categories=Utility;Development;
+        EOF
+        
+        # Build DEB package
+        dpkg-deb --build zerolog-viewer_${VERSION}_amd64
+        mv zerolog-viewer_${VERSION}_amd64.deb zerolog-viewer-${VERSION}-amd64.deb
+    
+    - name: Upload DEB artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: zerolog-viewer-${{ steps.get_version.outputs.version }}-amd64.deb
+        path: zerolog-viewer-${{ steps.get_version.outputs.version }}-amd64.deb
+
+  build-macos:
+    name: Build macOS DMG
+    runs-on: macos-latest
+    needs: [test, version]
+    if: always() && (needs.test.result == 'success') && (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && needs.version.result == 'success'))
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event_name == 'workflow_dispatch' && needs.version.outputs.new_tag || github.ref }}
+    
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+    
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        brew install create-dmg
+    
+    - name: Build executable with PyInstaller
+      run: |
+        pyinstaller --onefile --windowed --name "ZeroLog Viewer" zerolog_viewer.py
+    
+    - name: Get version
+      id: get_version
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          echo "version=${{ needs.version.outputs.new_version }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Create app bundle
+      run: |
+        mkdir -p "ZeroLog Viewer.app/Contents/MacOS"
+        mkdir -p "ZeroLog Viewer.app/Contents/Resources"
+        
+        # Copy binary
+        cp "dist/ZeroLog Viewer" "ZeroLog Viewer.app/Contents/MacOS/"
+        
+        # Create Info.plist
+        cat > "ZeroLog Viewer.app/Contents/Info.plist" << EOF
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>CFBundleName</key>
+            <string>ZeroLog Viewer</string>
+            <key>CFBundleDisplayName</key>
+            <string>ZeroLog Viewer</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.zerolog.viewer</string>
+            <key>CFBundleVersion</key>
+            <string>${{ steps.get_version.outputs.version }}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${{ steps.get_version.outputs.version }}</string>
+            <key>CFBundleExecutable</key>
+            <string>ZeroLog Viewer</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>10.13</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+        </dict>
+        </plist>
+        EOF
+    
+    - name: Create DMG
+      run: |
+        VERSION="${{ steps.get_version.outputs.version }}"
+        create-dmg \
+          --volname "ZeroLog Viewer" \
+          --window-pos 200 120 \
+          --window-size 600 400 \
+          --icon-size 100 \
+          --app-drop-link 425 120 \
+          "zerolog-viewer-${VERSION}.dmg" \
+          "ZeroLog Viewer.app"
+    
+    - name: Upload DMG artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: zerolog-viewer-${{ steps.get_version.outputs.version }}.dmg
+        path: zerolog-viewer-${{ steps.get_version.outputs.version }}.dmg
+
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [version, build-windows, build-linux, build-macos]
+    if: always() && (startsWith(github.ref, 'refs/tags/') || (github.event_name == 'workflow_dispatch' && needs.version.result == 'success')) && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' && needs.build-macos.result == 'success'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event_name == 'workflow_dispatch' && needs.version.outputs.new_tag || github.ref }}
+    
+    - name: Get version
+      id: get_version
+      run: |
+        if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+          echo "version=${{ needs.version.outputs.new_version }}" >> $GITHUB_OUTPUT
+          echo "tag=${{ needs.version.outputs.new_tag }}" >> $GITHUB_OUTPUT
+        else
+          echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+          echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        fi
+    
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: artifacts
+    
+    - name: Prepare release files
+      run: |
+        mkdir -p release
+        find artifacts -type f -exec cp {} release/ \;
+        ls -la release/
+    
     - name: Create Release
-      if: startsWith(github.ref, 'refs/tags/') || github.event_name == 'workflow_dispatch'
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ steps.get_version.outputs.version }}
-        name: Release ${{ steps.get_version.outputs.version }}
+        tag_name: ${{ steps.get_version.outputs.tag }}
+        name: Release ${{ steps.get_version.outputs.tag }}
         draft: false
         prerelease: false
-        files: |
-          dist/${{ matrix.artifact_name }}
+        files: release/*
         body: |
-          ## ZeroLog Viewer ${{ steps.get_version.outputs.version }}
+          ## ZeroLog Viewer ${{ steps.get_version.outputs.tag }}
           
           Cross-platform JSONL log viewer with the following features:
           - Read JSONL files with automatic column sizing
@@ -124,8 +371,11 @@ jobs:
           - Color-coded log levels
           
           ### Downloads
-          - Linux: zerolog_viewer-linux-amd64
-          - Windows: zerolog_viewer-windows-amd64.exe
-          - macOS: zerolog_viewer-macos-amd64
+          - **Linux DEB**: `zerolog-viewer-${{ steps.get_version.outputs.version }}-amd64.deb`
+            - Install with: `sudo dpkg -i zerolog-viewer-${{ steps.get_version.outputs.version }}-amd64.deb`
+          - **macOS DMG**: `zerolog-viewer-${{ steps.get_version.outputs.version }}.dmg`
+            - Mount and drag to Applications folder
+          - **Windows EXE**: `zerolog_viewer-windows-amd64.exe`
+            - Download and run directly
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

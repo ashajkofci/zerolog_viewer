@@ -44,3 +44,9 @@ Thumbs.db
 
 # Test files
 test_*.jsonl
+
+# Packaging artifacts
+*.deb
+*.dmg
+*.app
+zerolog-viewer_*

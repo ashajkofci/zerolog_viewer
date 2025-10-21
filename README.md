@@ -27,15 +27,19 @@ The viewer is optimized for large log files:
 
 ## Installation
 
-### Using Pre-built Executables (Recommended)
+### Using Pre-built Packages (Recommended)
 
 Download the latest release for your platform from the [Releases](https://github.com/ashajkofci/zerolog_viewer/releases) page:
 
-- **Windows**: `zerolog_viewer-windows-amd64.exe`
-- **Linux**: `zerolog_viewer-linux-amd64`
-- **macOS**: `zerolog_viewer-macos-amd64`
-
-No installation required - just download and run!
+- **Linux DEB**: `zerolog-viewer-X.X.X-amd64.deb`
+  - Install with: `sudo dpkg -i zerolog-viewer-X.X.X-amd64.deb`
+  - Includes desktop integration
+- **macOS DMG**: `zerolog-viewer-X.X.X.dmg`
+  - Mount the DMG and drag to Applications folder
+  - Includes proper app bundle
+- **Windows EXE**: `zerolog_viewer-windows-amd64.exe`
+  - Download and run directly
+  - No installation required
 
 ### Running from Source
 
@@ -156,18 +160,36 @@ python test_cli.py
 
 ## Creating a Release
 
-To create a new release with automated builds:
+There are two ways to create a new release:
 
-1. Update version in code if needed
+### Method 1: Manual Workflow Dispatch (Recommended)
+
+1. Go to the Actions tab in GitHub
+2. Select "Build and Release" workflow
+3. Click "Run workflow"
+4. Choose version bump type:
+   - **patch**: Bug fixes (0.2.0 → 0.2.1)
+   - **minor**: New features (0.2.0 → 0.3.0)
+   - **major**: Breaking changes (0.2.0 → 1.0.0)
+5. The workflow will:
+   - Run all tests
+   - Bump the version in the VERSION file
+   - Create a git tag
+   - Build packages for all platforms:
+     - **Linux**: DEB package
+     - **macOS**: DMG installer
+     - **Windows**: Standalone executable
+   - Create a GitHub release with all artifacts
+
+### Method 2: Git Tag Push
+
+1. Update the VERSION file manually
 2. Create and push a tag:
    ```bash
    git tag v1.1.0
    git push origin v1.1.0
    ```
-3. GitHub Actions will automatically build executables for all platforms
-4. Executables will be attached to the release
-
-Alternatively, trigger a manual build via GitHub Actions workflow dispatch.
+3. GitHub Actions will automatically build packages for all platforms
 
 ## Contributing
 
