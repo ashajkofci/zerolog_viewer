@@ -52,7 +52,16 @@ class ConfigManager:
         # Default configuration
         return {
             "visible_columns": ["time", "level", "message", "url"],
-            "window_geometry": "1200x700"
+            "window_geometry": "1200x700",
+            "level_colors": {
+                "debug": "#000000",
+                "info": "#000000",
+                "warn": "#000000",
+                "warning": "#000000",
+                "error": "#000000",
+                "fatal": "#000000",
+                "panic": "#000000"
+            }
         }
     
     @staticmethod
@@ -68,17 +77,6 @@ class ConfigManager:
 
 class LogTab:
     """Represents a single tab with log data."""
-    
-    # Color mapping for different log levels
-    LEVEL_COLORS = {
-        'debug': '#A0A0A0',  # Gray
-        'info': '#4A90E2',   # Blue
-        'warn': '#F5A623',   # Orange
-        'warning': '#F5A623', # Orange
-        'error': '#E74C3C',  # Red
-        'fatal': '#8B0000',  # Dark Red
-        'panic': '#8B0000',  # Dark Red
-    }
     
     def __init__(self, parent_notebook: ttk.Notebook, filename: str, app_instance):
         """Initialize a log tab."""
@@ -96,6 +94,19 @@ class LogTab:
         self.search_debounce_id: Optional[str] = None
         self.page_size = 1000  # Number of items to display at once
         self.current_page = 0
+        self.sidebar_visible = False
+        self.selected_log = None
+        
+        # Get level colors from config
+        self.level_colors = self.app.config.get("level_colors", {
+            "debug": "#000000",
+            "info": "#000000",
+            "warn": "#000000",
+            "warning": "#000000",
+            "error": "#000000",
+            "fatal": "#000000",
+            "panic": "#000000"
+        })
         
         # Create tab frame
         self.frame = ttk.Frame(parent_notebook)
@@ -105,26 +116,36 @@ class LogTab:
     
     def _create_tab_ui(self):
         """Create the UI for this tab."""
+        # Create main paned window (for log list and sidebar)
+        self.paned_window = ttk.PanedWindow(self.frame, orient=tk.HORIZONTAL)
+        self.paned_window.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        
+        # Left panel for logs
+        left_panel = ttk.Frame(self.paned_window)
+        self.paned_window.add(left_panel, weight=1)
+        
         # Filter frame at top
-        filter_frame = ttk.Frame(self.frame, padding="5")
+        filter_frame = ttk.Frame(left_panel, padding="5")
         filter_frame.pack(side=tk.TOP, fill=tk.X)
         
-        # Date range filter
+        # Date range filter with date picker buttons
         ttk.Label(filter_frame, text="From:").pack(side=tk.LEFT, padx=2)
         self.date_from_var = tk.StringVar()
         date_from_entry = ttk.Entry(filter_frame, textvariable=self.date_from_var, width=20)
         date_from_entry.pack(side=tk.LEFT, padx=2)
+        ttk.Button(filter_frame, text="📅", width=3, command=lambda: self.pick_date('from')).pack(side=tk.LEFT, padx=1)
         
         ttk.Label(filter_frame, text="To:").pack(side=tk.LEFT, padx=2)
         self.date_to_var = tk.StringVar()
         date_to_entry = ttk.Entry(filter_frame, textvariable=self.date_to_var, width=20)
         date_to_entry.pack(side=tk.LEFT, padx=2)
+        ttk.Button(filter_frame, text="📅", width=3, command=lambda: self.pick_date('to')).pack(side=tk.LEFT, padx=1)
         
         ttk.Button(filter_frame, text="Apply Date Filter", command=self.apply_date_filter).pack(side=tk.LEFT, padx=2)
         ttk.Button(filter_frame, text="Clear Date Filter", command=self.clear_date_filter).pack(side=tk.LEFT, padx=2)
         
         # Main frame with treeview and scrollbars
-        main_frame = ttk.Frame(self.frame)
+        main_frame = ttk.Frame(left_panel)
         main_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=5)
         
         # Scrollbars
@@ -146,18 +167,133 @@ class LogTab:
         self.tree.bind('<Button-4>', self.on_scroll)
         self.tree.bind('<Button-5>', self.on_scroll)
         
-        # Bind double-click to show metadata
-        self.tree.bind('<Double-Button-1>', self.on_log_double_click)
+        # Bind single click to show metadata in sidebar
+        self.tree.bind('<ButtonRelease-1>', self.on_log_click)
         
         # Configure tags for level colors
-        for level, color in self.LEVEL_COLORS.items():
+        for level, color in self.level_colors.items():
             self.tree.tag_configure(level, foreground=color)
         
-        # Status label at bottom
-        self.status_var = tk.StringVar()
-        self.status_var.set("Ready")
-        status_label = ttk.Label(self.frame, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
-        status_label.pack(side=tk.BOTTOM, fill=tk.X)
+        # Create sidebar frame (initially hidden)
+        self.sidebar_frame = ttk.Frame(self.paned_window, width=300)
+        self.sidebar_visible = False
+    
+    def pick_date(self, field_type: str):
+        """Pick a date and populate the date field."""
+        # Get earliest and latest dates from logs
+        if not self.all_logs:
+            messagebox.showinfo("No Data", "Please load a file first.")
+            return
+        
+        dates = []
+        for log in self.all_logs:
+            time_str = log.get('time', '')
+            if time_str:
+                try:
+                    dt = datetime.fromisoformat(str(time_str).replace('Z', '+00:00'))
+                    dates.append(dt)
+                except:
+                    pass
+        
+        if not dates:
+            messagebox.showinfo("No Dates", "No valid dates found in logs.")
+            return
+        
+        # Set the appropriate field with earliest (from) or latest (to) date
+        if field_type == 'from':
+            selected_date = min(dates)
+            self.date_from_var.set(selected_date.strftime('%Y-%m-%dT%H:%M:%S') + 'Z')
+        else:
+            selected_date = max(dates)
+            self.date_to_var.set(selected_date.strftime('%Y-%m-%dT%H:%M:%S') + 'Z')
+    
+    def on_log_click(self, event):
+        """Show metadata sidebar when a log entry is clicked."""
+        # Get selected item
+        item = self.tree.selection()
+        if not item:
+            return
+        
+        # Get the item index
+        item_id = item[0]
+        item_index = self.tree.index(item_id)
+        
+        # Get the log entry
+        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
+        if item_index >= len(logs_to_display):
+            return
+        
+        log_entry = logs_to_display[item_index]
+        self.selected_log = log_entry
+        
+        # Show sidebar with metadata
+        self.show_sidebar()
+    
+    def show_sidebar(self):
+        """Show the metadata sidebar."""
+        if not self.selected_log:
+            return
+        
+        # Add sidebar to paned window if not already shown
+        if not self.sidebar_visible:
+            self.paned_window.add(self.sidebar_frame, weight=0)
+            self.sidebar_visible = True
+        
+        # Clear existing sidebar content
+        for widget in self.sidebar_frame.winfo_children():
+            widget.destroy()
+        
+        # Create sidebar header
+        header_frame = ttk.Frame(self.sidebar_frame)
+        header_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        
+        ttk.Label(header_frame, text="Log Details", font=('TkDefaultFont', 10, 'bold')).pack(side=tk.LEFT)
+        ttk.Button(header_frame, text="✕", width=3, command=self.hide_sidebar).pack(side=tk.RIGHT)
+        
+        # Create scrollable frame for metadata
+        canvas = tk.Canvas(self.sidebar_frame)
+        scrollbar = ttk.Scrollbar(self.sidebar_frame, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Add metadata content
+        # Show visible columns first
+        ttk.Label(scrollable_frame, text="Visible Columns:", font=('TkDefaultFont', 9, 'bold')).pack(anchor='w', pady=(5, 2))
+        for col in self.visible_columns:
+            if col in self.selected_log:
+                value = self.selected_log[col]
+                frame = ttk.Frame(scrollable_frame)
+                frame.pack(fill=tk.X, pady=2)
+                ttk.Label(frame, text=f"{col}:", font=('TkDefaultFont', 8, 'bold')).pack(anchor='w')
+                ttk.Label(frame, text=str(value), wraplength=280).pack(anchor='w', padx=(10, 0))
+        
+        # Show hidden columns
+        hidden_cols = [col for col in self.all_columns if col not in self.visible_columns]
+        if hidden_cols:
+            ttk.Label(scrollable_frame, text="Hidden Columns:", font=('TkDefaultFont', 9, 'bold')).pack(anchor='w', pady=(10, 2))
+            for col in hidden_cols:
+                if col in self.selected_log:
+                    value = self.selected_log[col]
+                    frame = ttk.Frame(scrollable_frame)
+                    frame.pack(fill=tk.X, pady=2)
+                    ttk.Label(frame, text=f"{col}:", font=('TkDefaultFont', 8, 'bold')).pack(anchor='w')
+                    ttk.Label(frame, text=str(value), wraplength=280).pack(anchor='w', padx=(10, 0))
+    
+    def hide_sidebar(self):
+        """Hide the metadata sidebar."""
+        if self.sidebar_visible:
+            self.paned_window.forget(self.sidebar_frame)
+            self.sidebar_visible = False
 
     def display_logs(self):
         """Display logs in the treeview with pagination for performance."""
@@ -201,9 +337,9 @@ class LogTab:
         # Update status
         total = len(logs_to_display)
         if end_index < total:
-            self.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
+            self.app.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
         else:
-            self.status_var.set(f"Showing all {total:,} log entries")
+            self.app.status_var.set(f"Showing all {total:,} log entries")
         self.current_page = 0
     
     def on_scroll(self, event):
@@ -212,70 +348,6 @@ class LogTab:
         if self.tree.yview()[1] > 0.9:  # 90% scrolled
             self.load_more_items()
     
-    def on_log_double_click(self, event):
-        """Show metadata dialog when a log entry is double-clicked."""
-        # Get selected item
-        item = self.tree.selection()
-        if not item:
-            return
-        
-        # Get the item index
-        item_id = item[0]
-        item_index = self.tree.index(item_id)
-        
-        # Get the log entry
-        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
-        if item_index >= len(logs_to_display):
-            return
-        
-        log_entry = logs_to_display[item_index]
-        
-        # Create metadata window
-        metadata_window = tk.Toplevel(self.frame)
-        metadata_window.title("Log Entry Metadata")
-        metadata_window.geometry("700x500")
-        
-        # Create frame with scrollbar
-        frame = ttk.Frame(metadata_window)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Add scrollbar
-        scrollbar = ttk.Scrollbar(frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Create text widget for metadata
-        text_widget = tk.Text(frame, wrap=tk.WORD, yscrollcommand=scrollbar.set)
-        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=text_widget.yview)
-        
-        # Add metadata content
-        text_widget.insert('1.0', "Complete Log Entry Metadata\n")
-        text_widget.insert('end', "=" * 70 + "\n\n")
-        
-        # Show visible columns first
-        text_widget.insert('end', "Visible Columns:\n")
-        text_widget.insert('end', "-" * 70 + "\n")
-        for col in self.visible_columns:
-            if col in log_entry:
-                value = log_entry[col]
-                text_widget.insert('end', f"{col}:\n  {value}\n\n")
-        
-        # Show hidden columns
-        hidden_cols = [col for col in self.all_columns if col not in self.visible_columns]
-        if hidden_cols:
-            text_widget.insert('end', "\nHidden Columns:\n")
-            text_widget.insert('end', "-" * 70 + "\n")
-            for col in hidden_cols:
-                if col in log_entry:
-                    value = log_entry[col]
-                    text_widget.insert('end', f"{col}:\n  {value}\n\n")
-        
-        # Make text read-only
-        text_widget.config(state=tk.DISABLED)
-        
-        # Add close button
-        close_button = ttk.Button(metadata_window, text="Close", command=metadata_window.destroy)
-        close_button.pack(pady=5)
     
     def load_more_items(self):
         """Load more items into the tree for lazy loading."""
@@ -300,9 +372,9 @@ class LogTab:
         # Update status
         total = len(logs_to_display)
         if end_index < total:
-            self.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
+            self.app.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
         else:
-            self.status_var.set(f"Showing all {total:,} log entries")
+            self.app.status_var.set(f"Showing all {total:,} log entries")
     
     def sort_by_column(self, column: str):
         """Sort the treeview by the specified column."""
@@ -334,7 +406,7 @@ class LogTab:
         
         # Update status
         direction = "descending" if self.sort_reverse else "ascending"
-        self.status_var.set(f"Sorted by '{column}' ({direction})")
+        self.app.status_var.set(f"Sorted by '{column}' ({direction})")
     
     def apply_search(self, search_text: str):
         """Apply search filter to logs."""
@@ -343,7 +415,7 @@ class LogTab:
         if not search_text:
             self.filtered_logs = []
             self.display_logs()
-            self.status_var.set(f"Showing all {len(self.logs):,} log entries")
+            self.app.status_var.set(f"Showing all {len(self.logs):,} log entries")
             return
         
         # Filter logs containing search text in any field
@@ -355,7 +427,7 @@ class LogTab:
                     break
         
         self.display_logs()
-        self.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries")
+        self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries")
     
     def apply_date_filter(self):
         """Apply date range filter to logs."""
@@ -406,7 +478,7 @@ class LogTab:
             if date_to:
                 date_range.append(f"to {date_to_str}")
             
-            self.status_var.set(f"Date filtered: {len(self.logs):,} entries {' '.join(date_range)}")
+            self.app.status_var.set(f"Date filtered: {len(self.logs):,} entries {' '.join(date_range)}")
             
         except Exception as e:
             messagebox.showerror("Date Filter Error", f"Invalid date format: {str(e)}\nUse ISO 8601 format (e.g., 2025-10-20T17:19:16Z)")
@@ -418,7 +490,7 @@ class LogTab:
         self.logs = self.all_logs.copy()
         self.filtered_logs = []
         self.display_logs()
-        self.status_var.set(f"Date filter cleared. Showing all {len(self.logs):,} entries")
+        self.app.status_var.set(f"Date filter cleared. Showing all {len(self.logs):,} entries")
 
 
 
@@ -463,6 +535,7 @@ class ZeroLogViewer:
         settings_menu = tk.Menu(menubar, tearoff=0)
         menubar.add_cascade(label="Settings", menu=settings_menu)
         settings_menu.add_command(label="Configure Visible Columns...", command=self.configure_columns)
+        settings_menu.add_command(label="Configure Level Colors...", command=self.configure_colors)
         
         # Toolbar frame
         toolbar = ttk.Frame(self.root, padding="5")
@@ -483,7 +556,7 @@ class ZeroLogViewer:
         
         # Status bar
         self.status_var = tk.StringVar()
-        self.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
+        self.app.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         
@@ -508,7 +581,7 @@ class ZeroLogViewer:
         # Update status bar when switching tabs
         current_tab = self.get_current_tab()
         if current_tab:
-            self.status_var.set(current_tab.status_var.get())
+            self.app.status_var.set(current_tab.status_var.get())
     
     def get_current_tab(self) -> Optional[LogTab]:
         """Get the currently active tab."""
@@ -528,7 +601,7 @@ class ZeroLogViewer:
             self.notebook.forget(tab_index)
             self.tabs.remove(current_tab)
             if not self.tabs:
-                self.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
+                self.app.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
     
     def debounced_search(self):
         """Debounce search input to avoid too many updates."""
@@ -618,6 +691,87 @@ class ZeroLogViewer:
         ttk.Button(button_frame, text="Apply", command=apply_changes).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
     
+    def configure_colors(self):
+        """Open dialog to configure level colors."""
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Configure Level Colors")
+        dialog.geometry("400x400")
+        
+        # Instructions
+        ttk.Label(dialog, text="Select colors for log levels:", font=('TkDefaultFont', 10, 'bold')).pack(pady=10)
+        
+        # Frame for color pickers
+        color_frame = ttk.Frame(dialog)
+        color_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        # Get current colors
+        current_colors = self.config.get("level_colors", {
+            "debug": "#000000",
+            "info": "#000000",
+            "warn": "#000000",
+            "warning": "#000000",
+            "error": "#000000",
+            "fatal": "#000000",
+            "panic": "#000000"
+        })
+        
+        # Store color variables
+        color_vars = {}
+        color_buttons = {}
+        
+        levels = ["debug", "info", "warn", "warning", "error", "fatal", "panic"]
+        
+        for i, level in enumerate(levels):
+            frame = ttk.Frame(color_frame)
+            frame.pack(fill=tk.X, pady=5)
+            
+            ttk.Label(frame, text=f"{level}:", width=10).pack(side=tk.LEFT, padx=5)
+            
+            color_var = tk.StringVar(value=current_colors.get(level, "#000000"))
+            color_vars[level] = color_var
+            
+            color_button = tk.Button(frame, text="  ", width=5, 
+                                    bg=color_var.get(),
+                                    command=lambda l=level: self.pick_color(l, color_vars, color_buttons))
+            color_button.pack(side=tk.LEFT, padx=5)
+            color_buttons[level] = color_button
+            
+            ttk.Label(frame, textvariable=color_var).pack(side=tk.LEFT, padx=5)
+        
+        # Button frame
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        def apply_changes():
+            # Update colors in config
+            new_colors = {level: var.get() for level, var in color_vars.items()}
+            self.config["level_colors"] = new_colors
+            ConfigManager.save_config(self.config)
+            
+            # Update all open tabs
+            for tab in self.tabs:
+                tab.level_colors = new_colors
+                # Reconfigure tags
+                for level, color in new_colors.items():
+                    tab.tree.tag_configure(level, foreground=color)
+                # Refresh display
+                tab.display_logs()
+            
+            dialog.destroy()
+        
+        ttk.Button(button_frame, text="Apply", command=apply_changes).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+    
+    def pick_color(self, level, color_vars, color_buttons):
+        """Pick a color for a level."""
+        from tkinter import colorchooser
+        color = colorchooser.askcolor(title=f"Choose color for {level}", 
+                                       initialcolor=color_vars[level].get())
+        if color[1]:  # color[1] is the hex value
+            color_vars[level].set(color[1])
+            color_buttons[level].config(bg=color[1])
+    
     def on_closing(self):
         """Handle window closing event."""
         # Save window geometry
@@ -656,7 +810,7 @@ class ZeroLogViewer:
         self.tabs.append(tab)
         
         # Load file in background thread
-        self.status_var.set(f"Loading {os.path.basename(filename)}...")
+        self.app.status_var.set(f"Loading {os.path.basename(filename)}...")
         self.root.update_idletasks()
         
         thread = threading.Thread(target=self._load_file_thread, args=(tab, filename))
@@ -686,7 +840,7 @@ class ZeroLogViewer:
                             
                             # Update status periodically
                             if line_num % 10000 == 0:
-                                self.root.after(0, lambda n=line_num: self.status_var.set(
+                                self.root.after(0, lambda n=line_num: self.app.status_var.set(
                                     f"Loading {os.path.basename(filename)}... ({n:,} entries)"
                                 ))
                         except json.JSONDecodeError as e:
@@ -737,8 +891,7 @@ class ZeroLogViewer:
     def _finalize_load(self, tab: LogTab):
         """Finalize loading on the main thread."""
         tab.display_logs()
-        tab.status_var.set(f"Loaded {len(tab.logs):,} log entries from {os.path.basename(tab.filename)}")
-        self.status_var.set(tab.status_var.get())
+        self.status_var.set(f"Loaded {len(tab.logs):,} log entries from {os.path.basename(tab.filename)}")
     
 def main():
     """Main entry point for the application."""
