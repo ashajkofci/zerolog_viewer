@@ -15,7 +15,7 @@ except ImportError:
     HAS_DND = False
     DND_FILES = None
     TkinterDnD = None
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import List, Dict, Any, Optional, Set
 import os
 import threading
@@ -228,8 +228,8 @@ class LogTab:
         
         # Center dialog over parent window
         dialog.update_idletasks()
-        width = 350
-        height = 380
+        width = 400
+        height = 520
         x = self.app.root.winfo_x() + (self.app.root.winfo_width() // 2) - (width // 2)
         y = self.app.root.winfo_y() + (self.app.root.winfo_height() // 2) - (height // 2)
         dialog.geometry(f"{width}x{height}+{x}+{y}")
@@ -238,8 +238,17 @@ class LogTab:
         min_date = min(dates)
         max_date = max(dates)
         
-        # Default to min for 'from' and max for 'to'
-        default_date = min_date if field_type == 'from' else max_date
+        # Determine default date:
+        # 1. If filter field already has a date, use that
+        # 2. Otherwise, use first date for 'from' and last date for 'to'
+        current_filter = self.date_from_var.get().strip() if field_type == 'from' else self.date_to_var.get().strip()
+        if current_filter:
+            try:
+                default_date = datetime.fromisoformat(current_filter.replace('Z', '+00:00'))
+            except:
+                default_date = min_date if field_type == 'from' else max_date
+        else:
+            default_date = min_date if field_type == 'from' else max_date
         
         # Frame for date/time inputs
         input_frame = ttk.Frame(dialog, padding="20")
@@ -287,6 +296,77 @@ class LogTab:
                               text=f"Available range:\n{min_date.strftime('%Y-%m-%d %H:%M:%S')}\n to \n{max_date.strftime('%Y-%m-%d %H:%M:%S')}", 
                               font=('TkDefaultFont', 8))
         info_label.pack(pady=10)
+        
+        # Selected log frame with offset options
+        selected_log_frame = ttk.LabelFrame(input_frame, text="Use Selected Log Entry", padding="10")
+        selected_log_frame.pack(fill=tk.X, pady=10)
+        
+        # Time offset selector
+        offset_frame = ttk.Frame(selected_log_frame)
+        offset_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(offset_frame, text="Time offset:").pack(side=tk.LEFT, padx=5)
+        offset_var = tk.StringVar(value="5 seconds")
+        offset_combo = ttk.Combobox(offset_frame, textvariable=offset_var, 
+                                    values=["5 seconds", "30 seconds", "1 minute", "5 minutes", "15 minutes", "30 minutes", "1 hour"],
+                                    width=15, state="readonly")
+        offset_combo.pack(side=tk.LEFT, padx=5)
+        
+        def use_selected_log():
+            """Use the currently selected log entry's timestamp with offset."""
+            if not self.selected_log:
+                messagebox.showinfo("No Selection", "Please select a log entry first.", parent=dialog)
+                return
+            
+            time_str = self.selected_log.get('time', '')
+            if not time_str:
+                messagebox.showinfo("No Time", "Selected log entry has no timestamp.", parent=dialog)
+                return
+            
+            try:
+                log_time = datetime.fromisoformat(str(time_str).replace('Z', '+00:00'))
+                
+                # Parse offset
+                offset_str = offset_var.get()
+                offset_seconds = 0
+                if "second" in offset_str:
+                    offset_seconds = int(offset_str.split()[0])
+                elif "minute" in offset_str:
+                    offset_seconds = int(offset_str.split()[0]) * 60
+                elif "hour" in offset_str:
+                    offset_seconds = int(offset_str.split()[0]) * 3600
+                
+                # Apply offset based on field type
+                # For 'from', subtract offset; for 'to', add offset
+                if field_type == 'from':
+                    adjusted_time = log_time - timedelta(seconds=offset_seconds)
+                else:
+                    adjusted_time = log_time + timedelta(seconds=offset_seconds)
+                
+                # Update the date/time inputs
+                year_var.set(str(adjusted_time.year))
+                month_var.set(str(adjusted_time.month).zfill(2))
+                day_var.set(str(adjusted_time.day).zfill(2))
+                hour_var.set(str(adjusted_time.hour).zfill(2))
+                minute_var.set(str(adjusted_time.minute).zfill(2))
+                second_var.set(str(adjusted_time.second).zfill(2))
+                
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to parse timestamp: {str(e)}", parent=dialog)
+        
+        ttk.Button(selected_log_frame, text="Use Selected Log", command=use_selected_log).pack(pady=5)
+        
+        # Show selected log info if available
+        if self.selected_log:
+            time_str = self.selected_log.get('time', 'N/A')
+            msg = self.selected_log.get('message', 'N/A')
+            if len(msg) > 40:
+                msg = msg[:37] + "..."
+            selected_info = ttk.Label(selected_log_frame, 
+                                     text=f"Selected: {time_str}\n{msg}",
+                                     font=('TkDefaultFont', 8),
+                                     foreground='#666666')
+            selected_info.pack(pady=(5, 0))
         
         # Button frame
         button_frame = ttk.Frame(dialog)
