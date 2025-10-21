@@ -13,11 +13,13 @@ import sys
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
-# Mock tkinter before importing the main module
+# Mock tkinter and tkinterdnd2 before importing the main module
 sys.modules['tkinter'] = Mock()
 sys.modules['tkinter.ttk'] = Mock()
 sys.modules['tkinter.filedialog'] = Mock()
 sys.modules['tkinter.messagebox'] = Mock()
+sys.modules['tkinter.simpledialog'] = Mock()
+sys.modules['tkinterdnd2'] = Mock()
 
 from zerolog_viewer import ZeroLogViewer, ConfigManager
 
