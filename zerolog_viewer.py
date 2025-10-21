@@ -426,8 +426,21 @@ class LogTab:
                 value_text.insert('1.0', str(value))
                 value_text.config(state=tk.DISABLED)
                 # Calculate height based on content
-                lines = str(value).count('\n') + 1
-                value_text.config(height=min(lines, 10))
+                # Count newlines first
+                value_str = str(value)
+                newline_count = value_str.count('\n')
+                
+                # Estimate wrapped lines based on text length and assumed width
+                # Sidebar width is ~300px, with ~10px padding, leaves ~280px for text
+                # Default font is ~7px per character, so ~40 chars per line
+                chars_per_line = 40
+                total_chars = len(value_str)
+                estimated_wrapped_lines = (total_chars // chars_per_line) + (1 if total_chars % chars_per_line else 0)
+                
+                # Total lines is newlines + wrapped lines
+                total_lines = max(newline_count + 1, estimated_wrapped_lines)
+                
+                value_text.config(height=min(total_lines, 10))
                 value_text.pack(anchor='w', fill=tk.X, padx=(10, 0))
     
     def hide_sidebar(self):
