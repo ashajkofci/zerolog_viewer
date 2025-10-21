@@ -590,27 +590,37 @@ class LogTab:
             # Make sure widget is ready
             text_widget.update_idletasks()
             
-            # Get the actual number of display lines (including wrapped lines)
-            # The Text widget tracks this internally
+            # Get the actual content
             content = text_widget.get('1.0', 'end-1c')
             
             if not content:
                 text_widget.config(height=1)
                 return
             
-            # Enable the widget temporarily to count lines properly
+            # Enable the widget temporarily to measure properly
             state = text_widget.cget('state')
             text_widget.config(state=tk.NORMAL)
             
-            # Count the number of display lines using the Text widget's index system
-            # This accounts for wrapping
-            line_count = int(text_widget.index('end-1c').split('.')[0])
+            # Use the Text widget's count method with '-displaylines' option
+            # This counts the number of display lines (including wrapped lines)
+            # between two indices
+            try:
+                display_line_count = text_widget.count('1.0', 'end', 'displaylines')
+                # count() returns a tuple with one element or None
+                if display_line_count is None or not display_line_count:
+                    # Fallback to logical line count
+                    display_line_count = int(text_widget.index('end-1c').split('.')[0])
+                elif isinstance(display_line_count, tuple):
+                    display_line_count = display_line_count[0]
+            except (tk.TclError, TypeError):
+                # Fallback: count logical lines
+                display_line_count = int(text_widget.index('end-1c').split('.')[0])
             
             # Restore state
             text_widget.config(state=state)
             
             # Set height with reasonable limits
-            height = max(1, min(line_count, 20))  # Min 1, max 20 lines visible
+            height = max(1, min(display_line_count, 20))  # Min 1, max 20 lines visible
             text_widget.config(height=height)
             
         except (tk.TclError, ValueError, AttributeError):
