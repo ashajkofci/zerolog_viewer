@@ -554,9 +554,16 @@ class LogTab:
         search_text = search_text.lower()
         
         if not search_text:
+            # Store the currently selected log before clearing search
+            selected_log_to_restore = self.selected_log
+            
             self.filtered_logs = []
             self.display_logs()
             self.app.status_var.set(f"Showing all {len(self.logs):,} log entries")
+            
+            # Restore selection and scroll to it
+            if selected_log_to_restore:
+                self.scroll_to_log(selected_log_to_restore)
             return
         
         # Filter logs containing search text in any field
@@ -632,6 +639,54 @@ class LogTab:
         self.filtered_logs = []
         self.display_logs()
         self.app.status_var.set(f"Date filter cleared. Showing all {len(self.logs):,} entries")
+    
+    def scroll_to_log(self, log_entry: Dict[str, Any]):
+        """Scroll to and select a specific log entry in the tree view."""
+        if not log_entry:
+            return
+        
+        # Get the list being displayed
+        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
+        
+        # Find the index of this log entry in the displayed logs
+        try:
+            # Use object identity to find the exact log entry
+            log_index = None
+            for i, log in enumerate(logs_to_display):
+                if log is log_entry:
+                    log_index = i
+                    break
+            
+            # If not found by identity, try matching by content
+            if log_index is None:
+                for i, log in enumerate(logs_to_display):
+                    if log == log_entry:
+                        log_index = i
+                        break
+            
+            if log_index is not None:
+                # Load items up to this index if not yet loaded
+                current_count = len(self.tree.get_children())
+                if log_index >= current_count:
+                    # Load more items to include the target log
+                    display_columns = self.visible_columns if self.visible_columns else self.columns
+                    for log in logs_to_display[current_count:log_index + 1]:
+                        values = [log.get(col, '') for col in display_columns]
+                        level = str(log.get('level', '')).lower()
+                        tag = level if level in self.level_colors else ''
+                        self.tree.insert('', tk.END, values=values, tags=(tag,))
+                
+                # Get the tree item ID for this index
+                children = self.tree.get_children()
+                if log_index < len(children):
+                    item_id = children[log_index]
+                    # Select and scroll to this item
+                    self.tree.selection_set(item_id)
+                    self.tree.see(item_id)
+                    self.tree.focus(item_id)
+        except Exception as e:
+            # If we can't scroll to the log, just continue without error
+            print(f"Warning: Could not scroll to log: {e}")
 
 
 

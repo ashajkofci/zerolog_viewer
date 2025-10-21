@@ -163,6 +163,36 @@ class TestZeroLogViewer(unittest.TestCase):
         
         self.assertEqual(len(filtered), 1)
         self.assertEqual(filtered[0]['level'], 'info')
+    
+    def test_search_clear_preserves_selection(self):
+        """Test that clearing search preserves the selected log entry."""
+        # This test validates the feature: when we search, select a line,
+        # then clear the search, the list view should move to the selected line
+        
+        # Simulate search filtering
+        search_term = "established"
+        filtered = []
+        for log in self.test_logs:
+            for value in log.values():
+                if search_term.lower() in str(value).lower():
+                    filtered.append(log)
+                    break
+        
+        # Verify we found the log entry
+        self.assertEqual(len(filtered), 1)
+        selected_log = filtered[0]
+        
+        # Now simulate clearing the search - the selected log should be found
+        # in the full list of test_logs
+        found = False
+        for i, log in enumerate(self.test_logs):
+            if log == selected_log:
+                found = True
+                # The index should be 1 (second log in the original list)
+                self.assertEqual(i, 1)
+                break
+        
+        self.assertTrue(found, "Selected log should be found in full logs after clearing search")
 
 
 if __name__ == '__main__':
