@@ -56,9 +56,14 @@ Download the latest release for your platform from the [Releases](https://github
 - **macOS DMG**: `zerolog-viewer-X.X.X.dmg`
   - Mount the DMG and drag to Applications folder
   - Includes proper app bundle
-- **Windows EXE**: `zerolog_viewer-windows-amd64.exe`
+- **Windows Installer**: `zerolog-viewer-X.X.X-installer.exe`
+  - Run the installer to install to Program Files
+  - Creates Start Menu shortcuts and optionally Desktop shortcut
+  - Optional .jsonl file association for double-click opening
+- **Windows Standalone EXE**: `zerolog_viewer-windows-amd64.exe`
   - Download and run directly
   - No installation required
+  - Portable - can be run from any location
 
 ### Option 2: Run from Source
 
@@ -285,6 +290,39 @@ python test_zerolog_viewer.py
 # Run CLI tests
 python test_cli.py
 ```
+
+## Creating a Release
+
+There are two ways to create a new release:
+
+### Method 1: Manual Workflow Dispatch (Recommended)
+
+1. Go to the Actions tab in GitHub
+2. Select "Build and Release" workflow
+3. Click "Run workflow"
+4. Choose version bump type:
+   - **patch**: Bug fixes (0.2.0 → 0.2.1)
+   - **minor**: New features (0.2.0 → 0.3.0)
+   - **major**: Breaking changes (0.2.0 → 1.0.0)
+5. The workflow will:
+   - Run all tests
+   - Bump the version in the VERSION file
+   - Create a git tag
+   - Build packages for all platforms:
+     - **Linux**: DEB package
+     - **macOS**: DMG installer
+     - **Windows**: Installer (with Start Menu shortcuts) and standalone executable
+   - Create a GitHub release with all artifacts
+
+### Method 2: Git Tag Push
+
+1. Update the VERSION file manually
+2. Create and push a tag:
+   ```bash
+   git tag v1.1.0
+   git push origin v1.1.0
+   ```
+3. GitHub Actions will automatically build packages for all platforms
 
 ## Contributing
 
