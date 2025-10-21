@@ -5,12 +5,65 @@ ZeroLog Viewer - A cross-platform GUI application for viewing JSONL logs.
 
 import json
 import tkinter as tk
-from tkinter import ttk, filedialog, messagebox
+from tkinter import ttk, filedialog, messagebox, simpledialog
 from tkinterdnd2 import DND_FILES, TkinterDnD
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Set
 import os
 import threading
+import platform
+from pathlib import Path
+
+
+class ConfigManager:
+    """Manages configuration settings for the application."""
+    
+    @staticmethod
+    def get_config_dir() -> Path:
+        """Get the configuration directory based on the platform."""
+        system = platform.system()
+        if system == "Windows":
+            base_dir = Path(os.environ.get('APPDATA', Path.home()))
+        elif system == "Darwin":  # macOS
+            base_dir = Path.home() / "Library" / "Application Support"
+        else:  # Linux and others
+            base_dir = Path(os.environ.get('XDG_CONFIG_HOME', Path.home() / ".config"))
+        
+        config_dir = base_dir / "zerolog_viewer"
+        config_dir.mkdir(parents=True, exist_ok=True)
+        return config_dir
+    
+    @staticmethod
+    def get_config_file() -> Path:
+        """Get the configuration file path."""
+        return ConfigManager.get_config_dir() / "config.json"
+    
+    @staticmethod
+    def load_config() -> Dict[str, Any]:
+        """Load configuration from file."""
+        config_file = ConfigManager.get_config_file()
+        if config_file.exists():
+            try:
+                with open(config_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Warning: Failed to load config: {e}")
+        
+        # Default configuration
+        return {
+            "visible_columns": ["time", "level", "message", "url"],
+            "window_geometry": "1200x700"
+        }
+    
+    @staticmethod
+    def save_config(config: Dict[str, Any]):
+        """Save configuration to file."""
+        try:
+            config_file = ConfigManager.get_config_file()
+            with open(config_file, 'w') as f:
+                json.dump(config, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Failed to save config: {e}")
 
 
 class LogTab:
@@ -36,6 +89,8 @@ class LogTab:
         self.filtered_logs: List[Dict[str, Any]] = []
         self.all_logs: List[Dict[str, Any]] = []  # Store all logs before date filtering
         self.columns: List[str] = []
+        self.all_columns: List[str] = []  # Store all columns including hidden ones
+        self.visible_columns: List[str] = []  # Only columns to display
         self.sort_column: Optional[str] = None
         self.sort_reverse: bool = False
         self.search_debounce_id: Optional[str] = None
@@ -91,6 +146,9 @@ class LogTab:
         self.tree.bind('<Button-4>', self.on_scroll)
         self.tree.bind('<Button-5>', self.on_scroll)
         
+        # Bind double-click to show metadata
+        self.tree.bind('<Double-Button-1>', self.on_log_double_click)
+        
         # Configure tags for level colors
         for level, color in self.LEVEL_COLORS.items():
             self.tree.tag_configure(level, foreground=color)
@@ -109,7 +167,10 @@ class ZeroLogViewer:
         """Initialize the ZeroLog Viewer application."""
         self.root = root
         self.root.title("ZeroLog Viewer")
-        self.root.geometry("1200x700")
+        
+        # Load configuration
+        self.config = ConfigManager.load_config()
+        self.root.geometry(self.config.get("window_geometry", "1200x700"))
         
         self.tabs: List[LogTab] = []
         
@@ -118,6 +179,9 @@ class ZeroLogViewer:
         # Enable drag and drop
         self.root.drop_target_register(DND_FILES)
         self.root.dnd_bind('<<Drop>>', self.on_drop)
+        
+        # Save configuration on window close
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
     def _create_ui(self):
         """Create the user interface."""
@@ -131,6 +195,11 @@ class ZeroLogViewer:
         file_menu.add_command(label="Close Current Tab", command=self.close_current_tab)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
+        
+        # Settings menu
+        settings_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Settings", menu=settings_menu)
+        settings_menu.add_command(label="Configure Visible Columns...", command=self.configure_columns)
         
         # Toolbar frame
         toolbar = ttk.Frame(self.root, padding="5")
@@ -214,6 +283,85 @@ class ZeroLogViewer:
         """Clear the search filter."""
         self.search_var.set('')
     
+    def configure_columns(self):
+        """Open dialog to configure visible columns."""
+        current_tab = self.get_current_tab()
+        if not current_tab:
+            messagebox.showinfo("No File Open", "Please open a file first to configure columns.")
+            return
+        
+        if not current_tab.all_columns:
+            messagebox.showinfo("No Columns", "No columns available to configure.")
+            return
+        
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Configure Visible Columns")
+        dialog.geometry("400x500")
+        
+        # Instructions
+        ttk.Label(dialog, text="Select columns to display:", font=('TkDefaultFont', 10, 'bold')).pack(pady=10)
+        
+        # Frame with scrollbar
+        frame = ttk.Frame(dialog)
+        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        scrollbar = ttk.Scrollbar(frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Canvas for checkboxes
+        canvas = tk.Canvas(frame, yscrollcommand=scrollbar.set)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=canvas.yview)
+        
+        checkbox_frame = ttk.Frame(canvas)
+        canvas.create_window((0, 0), window=checkbox_frame, anchor='nw')
+        
+        # Create checkbox variables
+        checkbox_vars = {}
+        for col in current_tab.all_columns:
+            var = tk.BooleanVar(value=col in current_tab.visible_columns)
+            checkbox_vars[col] = var
+            cb = ttk.Checkbutton(checkbox_frame, text=col, variable=var)
+            cb.pack(anchor='w', padx=5, pady=2)
+        
+        # Update scrollregion
+        checkbox_frame.update_idletasks()
+        canvas.config(scrollregion=canvas.bbox('all'))
+        
+        # Button frame
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        
+        def apply_changes():
+            # Update visible columns
+            selected_columns = [col for col, var in checkbox_vars.items() if var.get()]
+            if not selected_columns:
+                messagebox.showwarning("No Columns Selected", "Please select at least one column to display.")
+                return
+            
+            # Update tab's visible columns
+            current_tab.visible_columns = selected_columns
+            
+            # Save to config
+            self.config["visible_columns"] = selected_columns
+            ConfigManager.save_config(self.config)
+            
+            # Refresh display
+            current_tab.display_logs()
+            
+            dialog.destroy()
+        
+        ttk.Button(button_frame, text="Apply", command=apply_changes).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
+    
+    def on_closing(self):
+        """Handle window closing event."""
+        # Save window geometry
+        self.config["window_geometry"] = self.root.geometry()
+        ConfigManager.save_config(self.config)
+        self.root.destroy()
+    
     def open_file(self):
         """Open a JSONL file dialog and load the file."""
         filenames = filedialog.askopenfilenames(
@@ -296,6 +444,20 @@ class ZeroLogViewer:
             sorted_columns.extend(sorted(columns))
             
             tab.columns = sorted_columns
+            tab.all_columns = sorted_columns.copy()  # Store all columns
+            
+            # Set visible columns from config (default to time, level, message, url)
+            default_visible = ['time', 'level', 'message', 'url']
+            config_visible = self.config.get("visible_columns", default_visible)
+            # Only use columns that exist in this file
+            tab.visible_columns = [col for col in config_visible if col in tab.all_columns]
+            # If no visible columns match, use defaults that exist
+            if not tab.visible_columns:
+                tab.visible_columns = [col for col in default_visible if col in tab.all_columns]
+            # If still empty, show all columns
+            if not tab.visible_columns:
+                tab.visible_columns = tab.all_columns.copy()
+            
             tab.all_logs = logs
             tab.logs = logs.copy()
             
@@ -321,12 +483,15 @@ class ZeroLogViewer:
         for item in self.tree.get_children():
             self.tree.delete(item)
         
+        # Use only visible columns for display
+        display_columns = self.visible_columns if self.visible_columns else self.columns
+        
         # Configure columns
-        self.tree['columns'] = self.columns
+        self.tree['columns'] = display_columns
         self.tree['show'] = 'headings'
         
         # Configure column headings and widths
-        for col in self.columns:
+        for col in display_columns:
             self.tree.heading(col, text=col, command=lambda c=col: self.sort_by_column(c))
             
             # Calculate automatic width based on column name and content
@@ -346,7 +511,7 @@ class ZeroLogViewer:
         # Display only first page for performance
         end_index = min(self.page_size, len(logs_to_display))
         for log in logs_to_display[:end_index]:
-            values = [log.get(col, '') for col in self.columns]
+            values = [log.get(col, '') for col in display_columns]
             level = str(log.get('level', '')).lower()
             tag = level if level in self.LEVEL_COLORS else ''
             self.tree.insert('', tk.END, values=values, tags=(tag,))
@@ -365,6 +530,71 @@ class ZeroLogViewer:
         if self.tree.yview()[1] > 0.9:  # 90% scrolled
             self.load_more_items()
     
+    def on_log_double_click(self, event):
+        """Show metadata dialog when a log entry is double-clicked."""
+        # Get selected item
+        item = self.tree.selection()
+        if not item:
+            return
+        
+        # Get the item index
+        item_id = item[0]
+        item_index = self.tree.index(item_id)
+        
+        # Get the log entry
+        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
+        if item_index >= len(logs_to_display):
+            return
+        
+        log_entry = logs_to_display[item_index]
+        
+        # Create metadata window
+        metadata_window = tk.Toplevel(self.frame)
+        metadata_window.title("Log Entry Metadata")
+        metadata_window.geometry("700x500")
+        
+        # Create frame with scrollbar
+        frame = ttk.Frame(metadata_window)
+        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Add scrollbar
+        scrollbar = ttk.Scrollbar(frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Create text widget for metadata
+        text_widget = tk.Text(frame, wrap=tk.WORD, yscrollcommand=scrollbar.set)
+        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=text_widget.yview)
+        
+        # Add metadata content
+        text_widget.insert('1.0', "Complete Log Entry Metadata\n")
+        text_widget.insert('end', "=" * 70 + "\n\n")
+        
+        # Show visible columns first
+        text_widget.insert('end', "Visible Columns:\n")
+        text_widget.insert('end', "-" * 70 + "\n")
+        for col in self.visible_columns:
+            if col in log_entry:
+                value = log_entry[col]
+                text_widget.insert('end', f"{col}:\n  {value}\n\n")
+        
+        # Show hidden columns
+        hidden_cols = [col for col in self.all_columns if col not in self.visible_columns]
+        if hidden_cols:
+            text_widget.insert('end', "\nHidden Columns:\n")
+            text_widget.insert('end', "-" * 70 + "\n")
+            for col in hidden_cols:
+                if col in log_entry:
+                    value = log_entry[col]
+                    text_widget.insert('end', f"{col}:\n  {value}\n\n")
+        
+        # Make text read-only
+        text_widget.config(state=tk.DISABLED)
+        
+        # Add close button
+        close_button = ttk.Button(metadata_window, text="Close", command=metadata_window.destroy)
+        close_button.pack(pady=5)
+    
     def load_more_items(self):
         """Load more items into the tree for lazy loading."""
         logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
@@ -377,8 +607,10 @@ class ZeroLogViewer:
         start_index = current_count
         end_index = min(start_index + self.page_size, len(logs_to_display))
         
+        display_columns = self.visible_columns if self.visible_columns else self.columns
+        
         for log in logs_to_display[start_index:end_index]:
-            values = [log.get(col, '') for col in self.columns]
+            values = [log.get(col, '') for col in display_columns]
             level = str(log.get('level', '')).lower()
             tag = level if level in self.LEVEL_COLORS else ''
             self.tree.insert('', tk.END, values=values, tags=(tag,))
