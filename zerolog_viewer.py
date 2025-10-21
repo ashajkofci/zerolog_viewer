@@ -1011,6 +1011,11 @@ class ZeroLogViewer:
         settings_menu.add_separator()
         settings_menu.add_command(label="Reset to Default Settings", command=self.reset_to_defaults)
         
+        # Help menu
+        help_menu = tk.Menu(menubar, tearoff=0)
+        menubar.add_cascade(label="Help", menu=help_menu)
+        help_menu.add_command(label="About", command=self.show_about)
+        
         # Toolbar frame
         toolbar = ttk.Frame(self.root, padding="5")
         toolbar.pack(side=tk.TOP, fill=tk.X)
@@ -1481,6 +1486,69 @@ class ZeroLogViewer:
         # Show confirmation message
         messagebox.showinfo("Settings Reset", "All settings have been reset to default values.")
         self.status_var.set("Settings reset to defaults")
+    
+    def show_about(self):
+        """Show About dialog with author and license information."""
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("About ZeroLog Viewer")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+        
+        # Center dialog over parent window
+        dialog.update_idletasks()
+        width = 450
+        height = 300
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (width // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (height // 2)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
+        
+        # Content frame
+        content_frame = ttk.Frame(dialog, padding="20")
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
+        ttk.Label(content_frame, text="ZeroLog Viewer", 
+                 font=('TkDefaultFont', 16, 'bold')).pack(pady=(0, 10))
+        
+        # Description
+        ttk.Label(content_frame, 
+                 text="A cross-platform GUI application for viewing\nand analyzing JSONL log files",
+                 font=('TkDefaultFont', 10),
+                 justify=tk.CENTER).pack(pady=(0, 20))
+        
+        # Author
+        ttk.Label(content_frame, text="Author:", 
+                 font=('TkDefaultFont', 9, 'bold')).pack(anchor='w')
+        ttk.Label(content_frame, text="Adrian Shajkofci", 
+                 font=('TkDefaultFont', 9)).pack(anchor='w', pady=(0, 10))
+        
+        # GitHub link
+        ttk.Label(content_frame, text="GitHub Repository:", 
+                 font=('TkDefaultFont', 9, 'bold')).pack(anchor='w')
+        
+        # Create clickable link
+        github_link = tk.Label(content_frame, 
+                              text="https://github.com/ashajkofci/zerolog_viewer",
+                              font=('TkDefaultFont', 9, 'underline'),
+                              foreground='blue',
+                              cursor='hand2')
+        github_link.pack(anchor='w', pady=(0, 10))
+        github_link.bind('<Button-1>', lambda e: self.open_url('https://github.com/ashajkofci/zerolog_viewer'))
+        
+        # License
+        ttk.Label(content_frame, text="License:", 
+                 font=('TkDefaultFont', 9, 'bold')).pack(anchor='w')
+        ttk.Label(content_frame, text="BSD License", 
+                 font=('TkDefaultFont', 9)).pack(anchor='w', pady=(0, 20))
+        
+        # Close button
+        ttk.Button(content_frame, text="Close", command=dialog.destroy).pack(pady=(10, 0))
+    
+    def open_url(self, url: str):
+        """Open URL in default web browser."""
+        import webbrowser
+        webbrowser.open(url)
     
     def on_closing(self):
         """Handle window closing event."""
