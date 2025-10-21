@@ -1142,19 +1142,56 @@ class ZeroLogViewer:
             # If mouse didn't move much, it's a click not a drag
             if abs(event.x - self.drag_start_x) < 10:
                 try:
-                    # Check if click was in close button area
-                    tab_index = self.drag_start_tab
-                    tab_coords = self.notebook.bbox(tab_index)
-                    if tab_coords:
-                        tab_x1, tab_y1, tab_x2, tab_y2 = tab_coords
-                        tab_width = tab_x2 - tab_x1
-                        click_offset = event.x - tab_x1
+                    # Verify we're still clicking on the same tab
+                    clicked_tab = self.notebook.tk.call(self.notebook._w, "identify", "tab", event.x, event.y)
+                    if clicked_tab != '' and int(clicked_tab) == self.drag_start_tab:
+                        tab_index = self.drag_start_tab
                         
-                        # If click is in the rightmost 30 pixels of the tab, treat as close button
-                        if click_offset > tab_width - 30:
+                        # Get the actual bounding box of each tab to find positions
+                        # We'll iterate through all tabs to find start and end positions
+                        tab_right_edge = 0
+                        tab_left_edge = 0
+                        
+                        for i in range(len(self.notebook.tabs())):
+                            tab_text = self.notebook.tab(i, "text")
+                            # Use Tk font measure to get actual text width
+                            try:
+                                # Get the font being used for tabs
+                                import tkinter.font as tkfont
+                                # ttk.Notebook uses TkDefaultFont typically
+                                font = tkfont.nametofont("TkDefaultFont")
+                                text_width = font.measure(tab_text)
+                                # Add padding (typical padding is around 12-16 pixels per side)
+                                tab_width = text_width + 24
+                            except:
+                                # Fallback to estimation if font measurement fails
+                                tab_width = len(tab_text) * 6 + 24
+                            
+                            if i < tab_index:
+                                tab_left_edge += tab_width
+                            
+                            if i == tab_index:
+                                tab_right_edge = tab_left_edge + tab_width
+                                break
+                        
+                        # Calculate click position within the tab
+                        click_distance_from_right = tab_right_edge - event.x
+                        
+                        # Debug output
+                        print(f"Click debug: event.x={event.x}, tab_left={tab_left_edge}, tab_right={tab_right_edge}")
+                        print(f"Distance from right edge: {click_distance_from_right}")
+                        
+                        # Only close if clicking within 20 pixels from the right edge
+                        if click_distance_from_right >= 0 and click_distance_from_right <= 40:
+                            print(f"Closing tab {tab_index}")
                             self.close_tab(tab_index)
-                except:
-                    pass
+                        else:
+                            print(f"Not closing - distance from right: {click_distance_from_right}")
+                            
+                except Exception as e:
+                    print(f"Exception in on_tab_release: {e}")
+                    import traceback
+                    traceback.print_exc()
         
         # Reset drag state
         self.drag_start_x = None
