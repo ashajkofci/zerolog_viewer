@@ -78,6 +78,31 @@ class TestZeroLogViewer(unittest.TestCase):
             self.assertIsInstance(level_colors[level], str)
             self.assertTrue(level_colors[level].startswith('#'))
     
+    def test_default_color_palette(self):
+        """Test that the default color palette has appropriate color values."""
+        default_config = ConfigManager.get_default_config()
+        level_colors = default_config['level_colors']
+        
+        # Verify expected color palette
+        expected_colors = {
+            "debug": "#808080",      # Gray
+            "info": "#0066CC",       # Blue
+            "warn": "#FF8C00",       # Orange
+            "warning": "#FF8C00",    # Orange
+            "error": "#CC0000",      # Red
+            "fatal": "#8B0000",      # Dark Red
+            "panic": "#8B0000"       # Dark Red
+        }
+        
+        for level, expected_color in expected_colors.items():
+            self.assertEqual(level_colors[level], expected_color,
+                           f"Color for {level} should be {expected_color}")
+        
+        # Ensure colors are not all black (the old default)
+        self.assertNotEqual(level_colors['debug'], "#000000")
+        self.assertNotEqual(level_colors['info'], "#000000")
+        self.assertNotEqual(level_colors['error'], "#000000")
+    
     def test_log_parsing(self):
         """Test JSONL parsing functionality."""
         # Create a temporary JSONL file

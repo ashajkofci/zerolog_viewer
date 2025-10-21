@@ -53,13 +53,13 @@ class ConfigManager:
             "visible_columns": ["time", "level", "message", "url"],
             "window_geometry": "1200x700",
             "level_colors": {
-                "debug": "#000000",
-                "info": "#000000",
-                "warn": "#000000",
-                "warning": "#000000",
-                "error": "#000000",
-                "fatal": "#000000",
-                "panic": "#000000"
+                "debug": "#808080",      # Gray
+                "info": "#0066CC",       # Blue
+                "warn": "#FF8C00",       # Orange
+                "warning": "#FF8C00",    # Orange
+                "error": "#CC0000",      # Red
+                "fatal": "#8B0000",      # Dark Red
+                "panic": "#8B0000"       # Dark Red
             }
         }
     
@@ -112,13 +112,13 @@ class LogTab:
         
         # Get level colors from config
         self.level_colors = self.app.config.get("level_colors", {
-            "debug": "#000000",
-            "info": "#000000",
-            "warn": "#000000",
-            "warning": "#000000",
-            "error": "#000000",
-            "fatal": "#000000",
-            "panic": "#000000"
+            "debug": "#808080",      # Gray
+            "info": "#0066CC",       # Blue
+            "warn": "#FF8C00",       # Orange
+            "warning": "#FF8C00",    # Orange
+            "error": "#CC0000",      # Red
+            "fatal": "#8B0000",      # Dark Red
+            "panic": "#8B0000"       # Dark Red
         })
         
         # Create tab frame
@@ -865,13 +865,13 @@ class ZeroLogViewer:
         
         # Get current colors
         current_colors = self.config.get("level_colors", {
-            "debug": "#000000",
-            "info": "#000000",
-            "warn": "#000000",
-            "warning": "#000000",
-            "error": "#000000",
-            "fatal": "#000000",
-            "panic": "#000000"
+            "debug": "#808080",      # Gray
+            "info": "#0066CC",       # Blue
+            "warn": "#FF8C00",       # Orange
+            "warning": "#FF8C00",    # Orange
+            "error": "#CC0000",      # Red
+            "fatal": "#8B0000",      # Dark Red
+            "panic": "#8B0000"       # Dark Red
         })
         
         # Store color variables
