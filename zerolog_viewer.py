@@ -6,7 +6,15 @@ ZeroLog Viewer - A cross-platform GUI application for viewing JSONL logs.
 import json
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
-from tkinterdnd2 import DND_FILES, TkinterDnD
+try:
+    from tkinterdnd2 import DND_FILES, TkinterDnD
+    HAS_DND = True
+except ImportError:
+    print("Warning: tkinterdnd2 not found. Drag-and-drop functionality will be disabled.")
+    print("Install with: pip install tkinterdnd2")
+    HAS_DND = False
+    DND_FILES = None
+    TkinterDnD = None
 from datetime import datetime
 from typing import List, Dict, Any, Optional, Set
 import os
@@ -498,7 +506,7 @@ class LogTab:
 class ZeroLogViewer:
     """Main application class for the ZeroLog Viewer."""
     
-    def __init__(self, root: TkinterDnD.Tk):
+    def __init__(self, root):
         """Initialize the ZeroLog Viewer application."""
         self.root = root
         self.root.title("ZeroLog Viewer")
@@ -511,9 +519,10 @@ class ZeroLogViewer:
         
         self._create_ui()
         
-        # Enable drag and drop
-        self.root.drop_target_register(DND_FILES)
-        self.root.dnd_bind('<<Drop>>', self.on_drop)
+        # Enable drag and drop if available
+        if HAS_DND:
+            self.root.drop_target_register(DND_FILES)
+            self.root.dnd_bind('<<Drop>>', self.on_drop)
         
         # Save configuration on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
@@ -895,12 +904,9 @@ class ZeroLogViewer:
     
 def main():
     """Main entry point for the application."""
-    try:
+    if HAS_DND:
         root = TkinterDnD.Tk()
-    except:
-        # Fallback if tkinterdnd2 is not installed
-        print("Warning: tkinterdnd2 not installed. Drag and drop will not work.")
-        print("Install with: pip install tkinterdnd2")
+    else:
         root = tk.Tk()
     
     app = ZeroLogViewer(root)
