@@ -159,6 +159,269 @@ class LogTab:
         status_label = ttk.Label(self.frame, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_label.pack(side=tk.BOTTOM, fill=tk.X)
 
+    def display_logs(self):
+        """Display logs in the treeview with pagination for performance."""
+        # Clear existing items
+        for item in self.tree.get_children():
+            self.tree.delete(item)
+        
+        # Use only visible columns for display
+        display_columns = self.visible_columns if self.visible_columns else self.columns
+        
+        # Configure columns
+        self.tree['columns'] = display_columns
+        self.tree['show'] = 'headings'
+        
+        # Configure column headings and widths
+        for col in display_columns:
+            self.tree.heading(col, text=col, command=lambda c=col: self.sort_by_column(c))
+            
+            # Calculate automatic width based on column name and content
+            max_width = len(col) * 8  # Start with header width
+            sample_logs = (self.filtered_logs if self.filtered_logs else self.logs)[:100]
+            for log in sample_logs:  # Sample first 100 entries for performance
+                value = str(log.get(col, ''))
+                max_width = max(max_width, len(value) * 7)
+            
+            # Set width with reasonable limits
+            width = min(max(max_width, 80), 400)
+            self.tree.column(col, width=width, minwidth=50, stretch=True)
+        
+        # Use filtered logs if search is active, otherwise use all logs
+        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
+        
+        # Display only first page for performance
+        end_index = min(self.page_size, len(logs_to_display))
+        for log in logs_to_display[:end_index]:
+            values = [log.get(col, '') for col in display_columns]
+            level = str(log.get('level', '')).lower()
+            tag = level if level in self.LEVEL_COLORS else ''
+            self.tree.insert('', tk.END, values=values, tags=(tag,))
+        
+        # Update status
+        total = len(logs_to_display)
+        if end_index < total:
+            self.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
+        else:
+            self.status_var.set(f"Showing all {total:,} log entries")
+        self.current_page = 0
+    
+    def on_scroll(self, event):
+        """Load more items when scrolling near bottom."""
+        # Check if scrolled near bottom
+        if self.tree.yview()[1] > 0.9:  # 90% scrolled
+            self.load_more_items()
+    
+    def on_log_double_click(self, event):
+        """Show metadata dialog when a log entry is double-clicked."""
+        # Get selected item
+        item = self.tree.selection()
+        if not item:
+            return
+        
+        # Get the item index
+        item_id = item[0]
+        item_index = self.tree.index(item_id)
+        
+        # Get the log entry
+        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
+        if item_index >= len(logs_to_display):
+            return
+        
+        log_entry = logs_to_display[item_index]
+        
+        # Create metadata window
+        metadata_window = tk.Toplevel(self.frame)
+        metadata_window.title("Log Entry Metadata")
+        metadata_window.geometry("700x500")
+        
+        # Create frame with scrollbar
+        frame = ttk.Frame(metadata_window)
+        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+        
+        # Add scrollbar
+        scrollbar = ttk.Scrollbar(frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # Create text widget for metadata
+        text_widget = tk.Text(frame, wrap=tk.WORD, yscrollcommand=scrollbar.set)
+        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=text_widget.yview)
+        
+        # Add metadata content
+        text_widget.insert('1.0', "Complete Log Entry Metadata\n")
+        text_widget.insert('end', "=" * 70 + "\n\n")
+        
+        # Show visible columns first
+        text_widget.insert('end', "Visible Columns:\n")
+        text_widget.insert('end', "-" * 70 + "\n")
+        for col in self.visible_columns:
+            if col in log_entry:
+                value = log_entry[col]
+                text_widget.insert('end', f"{col}:\n  {value}\n\n")
+        
+        # Show hidden columns
+        hidden_cols = [col for col in self.all_columns if col not in self.visible_columns]
+        if hidden_cols:
+            text_widget.insert('end', "\nHidden Columns:\n")
+            text_widget.insert('end', "-" * 70 + "\n")
+            for col in hidden_cols:
+                if col in log_entry:
+                    value = log_entry[col]
+                    text_widget.insert('end', f"{col}:\n  {value}\n\n")
+        
+        # Make text read-only
+        text_widget.config(state=tk.DISABLED)
+        
+        # Add close button
+        close_button = ttk.Button(metadata_window, text="Close", command=metadata_window.destroy)
+        close_button.pack(pady=5)
+    
+    def load_more_items(self):
+        """Load more items into the tree for lazy loading."""
+        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
+        current_count = len(self.tree.get_children())
+        
+        if current_count >= len(logs_to_display):
+            return  # All items loaded
+        
+        # Load next page
+        start_index = current_count
+        end_index = min(start_index + self.page_size, len(logs_to_display))
+        
+        display_columns = self.visible_columns if self.visible_columns else self.columns
+        
+        for log in logs_to_display[start_index:end_index]:
+            values = [log.get(col, '') for col in display_columns]
+            level = str(log.get('level', '')).lower()
+            tag = level if level in self.LEVEL_COLORS else ''
+            self.tree.insert('', tk.END, values=values, tags=(tag,))
+        
+        # Update status
+        total = len(logs_to_display)
+        if end_index < total:
+            self.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
+        else:
+            self.status_var.set(f"Showing all {total:,} log entries")
+    
+    def sort_by_column(self, column: str):
+        """Sort the treeview by the specified column."""
+        # Toggle sort direction if same column clicked
+        if self.sort_column == column:
+            self.sort_reverse = not self.sort_reverse
+        else:
+            self.sort_column = column
+            self.sort_reverse = False
+        
+        # Sort the logs
+        def sort_key(log):
+            value = log.get(column, '')
+            # Try to parse as number or date for proper sorting
+            if column == 'time':
+                try:
+                    return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+                except:
+                    return value
+            try:
+                return float(value)
+            except:
+                return str(value).lower()
+        
+        self.logs.sort(key=sort_key, reverse=self.sort_reverse)
+        
+        # Re-display
+        self.display_logs()
+        
+        # Update status
+        direction = "descending" if self.sort_reverse else "ascending"
+        self.status_var.set(f"Sorted by '{column}' ({direction})")
+    
+    def apply_search(self, search_text: str):
+        """Apply search filter to logs."""
+        search_text = search_text.lower()
+        
+        if not search_text:
+            self.filtered_logs = []
+            self.display_logs()
+            self.status_var.set(f"Showing all {len(self.logs):,} log entries")
+            return
+        
+        # Filter logs containing search text in any field
+        self.filtered_logs = []
+        for log in self.logs:
+            for value in log.values():
+                if search_text in str(value).lower():
+                    self.filtered_logs.append(log)
+                    break
+        
+        self.display_logs()
+        self.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries")
+    
+    def apply_date_filter(self):
+        """Apply date range filter to logs."""
+        date_from_str = self.date_from_var.get().strip()
+        date_to_str = self.date_to_var.get().strip()
+        
+        if not date_from_str and not date_to_str:
+            messagebox.showinfo("Date Filter", "Please specify at least one date (from or to)")
+            return
+        
+        try:
+            date_from = None
+            date_to = None
+            
+            if date_from_str:
+                date_from = datetime.fromisoformat(date_from_str.replace('Z', '+00:00'))
+            
+            if date_to_str:
+                date_to = datetime.fromisoformat(date_to_str.replace('Z', '+00:00'))
+            
+            # Filter logs by date range
+            filtered = []
+            for log in self.all_logs:
+                time_str = log.get('time', '')
+                if not time_str:
+                    continue
+                
+                try:
+                    log_time = datetime.fromisoformat(str(time_str).replace('Z', '+00:00'))
+                    
+                    if date_from and log_time < date_from:
+                        continue
+                    if date_to and log_time > date_to:
+                        continue
+                    
+                    filtered.append(log)
+                except:
+                    # Include logs with unparseable dates
+                    filtered.append(log)
+            
+            self.logs = filtered
+            self.filtered_logs = []
+            self.display_logs()
+            
+            date_range = []
+            if date_from:
+                date_range.append(f"from {date_from_str}")
+            if date_to:
+                date_range.append(f"to {date_to_str}")
+            
+            self.status_var.set(f"Date filtered: {len(self.logs):,} entries {' '.join(date_range)}")
+            
+        except Exception as e:
+            messagebox.showerror("Date Filter Error", f"Invalid date format: {str(e)}\nUse ISO 8601 format (e.g., 2025-10-20T17:19:16Z)")
+    
+    def clear_date_filter(self):
+        """Clear the date range filter."""
+        self.date_from_var.set('')
+        self.date_to_var.set('')
+        self.logs = self.all_logs.copy()
+        self.filtered_logs = []
+        self.display_logs()
+        self.status_var.set(f"Date filter cleared. Showing all {len(self.logs):,} entries")
+
+
+
 
 class ZeroLogViewer:
     """Main application class for the ZeroLog Viewer."""
@@ -477,268 +740,6 @@ class ZeroLogViewer:
         tab.status_var.set(f"Loaded {len(tab.logs):,} log entries from {os.path.basename(tab.filename)}")
         self.status_var.set(tab.status_var.get())
     
-    def display_logs(self):
-        """Display logs in the treeview with pagination for performance."""
-        # Clear existing items
-        for item in self.tree.get_children():
-            self.tree.delete(item)
-        
-        # Use only visible columns for display
-        display_columns = self.visible_columns if self.visible_columns else self.columns
-        
-        # Configure columns
-        self.tree['columns'] = display_columns
-        self.tree['show'] = 'headings'
-        
-        # Configure column headings and widths
-        for col in display_columns:
-            self.tree.heading(col, text=col, command=lambda c=col: self.sort_by_column(c))
-            
-            # Calculate automatic width based on column name and content
-            max_width = len(col) * 8  # Start with header width
-            sample_logs = (self.filtered_logs if self.filtered_logs else self.logs)[:100]
-            for log in sample_logs:  # Sample first 100 entries for performance
-                value = str(log.get(col, ''))
-                max_width = max(max_width, len(value) * 7)
-            
-            # Set width with reasonable limits
-            width = min(max(max_width, 80), 400)
-            self.tree.column(col, width=width, minwidth=50, stretch=True)
-        
-        # Use filtered logs if search is active, otherwise use all logs
-        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
-        
-        # Display only first page for performance
-        end_index = min(self.page_size, len(logs_to_display))
-        for log in logs_to_display[:end_index]:
-            values = [log.get(col, '') for col in display_columns]
-            level = str(log.get('level', '')).lower()
-            tag = level if level in self.LEVEL_COLORS else ''
-            self.tree.insert('', tk.END, values=values, tags=(tag,))
-        
-        # Update status
-        total = len(logs_to_display)
-        if end_index < total:
-            self.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
-        else:
-            self.status_var.set(f"Showing all {total:,} log entries")
-        self.current_page = 0
-    
-    def on_scroll(self, event):
-        """Load more items when scrolling near bottom."""
-        # Check if scrolled near bottom
-        if self.tree.yview()[1] > 0.9:  # 90% scrolled
-            self.load_more_items()
-    
-    def on_log_double_click(self, event):
-        """Show metadata dialog when a log entry is double-clicked."""
-        # Get selected item
-        item = self.tree.selection()
-        if not item:
-            return
-        
-        # Get the item index
-        item_id = item[0]
-        item_index = self.tree.index(item_id)
-        
-        # Get the log entry
-        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
-        if item_index >= len(logs_to_display):
-            return
-        
-        log_entry = logs_to_display[item_index]
-        
-        # Create metadata window
-        metadata_window = tk.Toplevel(self.frame)
-        metadata_window.title("Log Entry Metadata")
-        metadata_window.geometry("700x500")
-        
-        # Create frame with scrollbar
-        frame = ttk.Frame(metadata_window)
-        frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Add scrollbar
-        scrollbar = ttk.Scrollbar(frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Create text widget for metadata
-        text_widget = tk.Text(frame, wrap=tk.WORD, yscrollcommand=scrollbar.set)
-        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=text_widget.yview)
-        
-        # Add metadata content
-        text_widget.insert('1.0', "Complete Log Entry Metadata\n")
-        text_widget.insert('end', "=" * 70 + "\n\n")
-        
-        # Show visible columns first
-        text_widget.insert('end', "Visible Columns:\n")
-        text_widget.insert('end', "-" * 70 + "\n")
-        for col in self.visible_columns:
-            if col in log_entry:
-                value = log_entry[col]
-                text_widget.insert('end', f"{col}:\n  {value}\n\n")
-        
-        # Show hidden columns
-        hidden_cols = [col for col in self.all_columns if col not in self.visible_columns]
-        if hidden_cols:
-            text_widget.insert('end', "\nHidden Columns:\n")
-            text_widget.insert('end', "-" * 70 + "\n")
-            for col in hidden_cols:
-                if col in log_entry:
-                    value = log_entry[col]
-                    text_widget.insert('end', f"{col}:\n  {value}\n\n")
-        
-        # Make text read-only
-        text_widget.config(state=tk.DISABLED)
-        
-        # Add close button
-        close_button = ttk.Button(metadata_window, text="Close", command=metadata_window.destroy)
-        close_button.pack(pady=5)
-    
-    def load_more_items(self):
-        """Load more items into the tree for lazy loading."""
-        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
-        current_count = len(self.tree.get_children())
-        
-        if current_count >= len(logs_to_display):
-            return  # All items loaded
-        
-        # Load next page
-        start_index = current_count
-        end_index = min(start_index + self.page_size, len(logs_to_display))
-        
-        display_columns = self.visible_columns if self.visible_columns else self.columns
-        
-        for log in logs_to_display[start_index:end_index]:
-            values = [log.get(col, '') for col in display_columns]
-            level = str(log.get('level', '')).lower()
-            tag = level if level in self.LEVEL_COLORS else ''
-            self.tree.insert('', tk.END, values=values, tags=(tag,))
-        
-        # Update status
-        total = len(logs_to_display)
-        if end_index < total:
-            self.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
-        else:
-            self.status_var.set(f"Showing all {total:,} log entries")
-    
-    def sort_by_column(self, column: str):
-        """Sort the treeview by the specified column."""
-        # Toggle sort direction if same column clicked
-        if self.sort_column == column:
-            self.sort_reverse = not self.sort_reverse
-        else:
-            self.sort_column = column
-            self.sort_reverse = False
-        
-        # Sort the logs
-        def sort_key(log):
-            value = log.get(column, '')
-            # Try to parse as number or date for proper sorting
-            if column == 'time':
-                try:
-                    return datetime.fromisoformat(str(value).replace('Z', '+00:00'))
-                except:
-                    return value
-            try:
-                return float(value)
-            except:
-                return str(value).lower()
-        
-        self.logs.sort(key=sort_key, reverse=self.sort_reverse)
-        
-        # Re-display
-        self.display_logs()
-        
-        # Update status
-        direction = "descending" if self.sort_reverse else "ascending"
-        self.status_var.set(f"Sorted by '{column}' ({direction})")
-    
-    def apply_search(self, search_text: str):
-        """Apply search filter to logs."""
-        search_text = search_text.lower()
-        
-        if not search_text:
-            self.filtered_logs = []
-            self.display_logs()
-            self.status_var.set(f"Showing all {len(self.logs):,} log entries")
-            return
-        
-        # Filter logs containing search text in any field
-        self.filtered_logs = []
-        for log in self.logs:
-            for value in log.values():
-                if search_text in str(value).lower():
-                    self.filtered_logs.append(log)
-                    break
-        
-        self.display_logs()
-        self.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries")
-    
-    def apply_date_filter(self):
-        """Apply date range filter to logs."""
-        date_from_str = self.date_from_var.get().strip()
-        date_to_str = self.date_to_var.get().strip()
-        
-        if not date_from_str and not date_to_str:
-            messagebox.showinfo("Date Filter", "Please specify at least one date (from or to)")
-            return
-        
-        try:
-            date_from = None
-            date_to = None
-            
-            if date_from_str:
-                date_from = datetime.fromisoformat(date_from_str.replace('Z', '+00:00'))
-            
-            if date_to_str:
-                date_to = datetime.fromisoformat(date_to_str.replace('Z', '+00:00'))
-            
-            # Filter logs by date range
-            filtered = []
-            for log in self.all_logs:
-                time_str = log.get('time', '')
-                if not time_str:
-                    continue
-                
-                try:
-                    log_time = datetime.fromisoformat(str(time_str).replace('Z', '+00:00'))
-                    
-                    if date_from and log_time < date_from:
-                        continue
-                    if date_to and log_time > date_to:
-                        continue
-                    
-                    filtered.append(log)
-                except:
-                    # Include logs with unparseable dates
-                    filtered.append(log)
-            
-            self.logs = filtered
-            self.filtered_logs = []
-            self.display_logs()
-            
-            date_range = []
-            if date_from:
-                date_range.append(f"from {date_from_str}")
-            if date_to:
-                date_range.append(f"to {date_to_str}")
-            
-            self.status_var.set(f"Date filtered: {len(self.logs):,} entries {' '.join(date_range)}")
-            
-        except Exception as e:
-            messagebox.showerror("Date Filter Error", f"Invalid date format: {str(e)}\nUse ISO 8601 format (e.g., 2025-10-20T17:19:16Z)")
-    
-    def clear_date_filter(self):
-        """Clear the date range filter."""
-        self.date_from_var.set('')
-        self.date_to_var.set('')
-        self.logs = self.all_logs.copy()
-        self.filtered_logs = []
-        self.display_logs()
-        self.status_var.set(f"Date filter cleared. Showing all {len(self.logs):,} entries")
-
-
 def main():
     """Main entry point for the application."""
     try:
