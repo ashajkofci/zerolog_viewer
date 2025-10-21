@@ -1,0 +1,12 @@
+# ZeroLog Viewer Requirements
+# Cross-platform GUI for viewing JSONL logs
+
+# GUI framework is built-in (tkinter), no additional GUI dependencies needed
+# For drag and drop support
+tkinterdnd2>=0.3.0
+
+# For building executables
+pyinstaller>=6.0.0
+
+# For testing
+pytest>=7.0.0
