@@ -193,6 +193,150 @@ class TestZeroLogViewer(unittest.TestCase):
                 break
         
         self.assertTrue(found, "Selected log should be found in full logs after clearing search")
+    
+    def test_log_level_hierarchy(self):
+        """Test that log level hierarchy is correctly defined."""
+        from zerolog_viewer import LogTab
+        
+        # Test that hierarchy is defined
+        self.assertIn('debug', LogTab.LOG_LEVELS)
+        self.assertIn('info', LogTab.LOG_LEVELS)
+        self.assertIn('warn', LogTab.LOG_LEVELS)
+        self.assertIn('error', LogTab.LOG_LEVELS)
+        self.assertIn('fatal', LogTab.LOG_LEVELS)
+        
+        # Test hierarchy order
+        self.assertLess(LogTab.LOG_LEVELS['debug'], LogTab.LOG_LEVELS['info'])
+        self.assertLess(LogTab.LOG_LEVELS['info'], LogTab.LOG_LEVELS['warn'])
+        self.assertLess(LogTab.LOG_LEVELS['warn'], LogTab.LOG_LEVELS['error'])
+        self.assertLess(LogTab.LOG_LEVELS['error'], LogTab.LOG_LEVELS['fatal'])
+        
+        # Test that warning is same as warn
+        self.assertEqual(LogTab.LOG_LEVELS['warn'], LogTab.LOG_LEVELS['warning'])
+        
+        # Test that panic is same as fatal
+        self.assertEqual(LogTab.LOG_LEVELS['fatal'], LogTab.LOG_LEVELS['panic'])
+    
+    def test_level_filter_all_logs(self):
+        """Test that 'all' level filter includes all logs."""
+        # Create test logs with different levels
+        test_logs_varied = [
+            {"level": "debug", "message": "Debug message"},
+            {"level": "info", "message": "Info message"},
+            {"level": "warn", "message": "Warn message"},
+            {"level": "error", "message": "Error message"},
+            {"level": "fatal", "message": "Fatal message"},
+        ]
+        
+        # With level_filter = 'all', all logs should pass
+        from zerolog_viewer import LogTab
+        
+        # Mock the required attributes
+        mock_tab = Mock()
+        mock_tab.level_filter = 'all'
+        mock_tab.LOG_LEVELS = LogTab.LOG_LEVELS
+        
+        # Use the actual method
+        filtered = [log for log in test_logs_varied if LogTab._passes_level_filter(mock_tab, log)]
+        
+        self.assertEqual(len(filtered), 5)
+    
+    def test_level_filter_info_and_more(self):
+        """Test that 'info' level filter excludes debug logs."""
+        test_logs_varied = [
+            {"level": "debug", "message": "Debug message"},
+            {"level": "info", "message": "Info message"},
+            {"level": "warn", "message": "Warn message"},
+            {"level": "error", "message": "Error message"},
+        ]
+        
+        from zerolog_viewer import LogTab
+        
+        # Mock the required attributes
+        mock_tab = Mock()
+        mock_tab.level_filter = 'info'
+        mock_tab.LOG_LEVELS = LogTab.LOG_LEVELS
+        
+        # Use the actual method
+        filtered = [log for log in test_logs_varied if LogTab._passes_level_filter(mock_tab, log)]
+        
+        # Should exclude debug, include info, warn, error
+        self.assertEqual(len(filtered), 3)
+        self.assertNotIn('debug', [log['level'] for log in filtered])
+        self.assertIn('info', [log['level'] for log in filtered])
+        self.assertIn('warn', [log['level'] for log in filtered])
+        self.assertIn('error', [log['level'] for log in filtered])
+    
+    def test_level_filter_warn_and_more(self):
+        """Test that 'warn' level filter excludes debug and info logs."""
+        test_logs_varied = [
+            {"level": "debug", "message": "Debug message"},
+            {"level": "info", "message": "Info message"},
+            {"level": "warn", "message": "Warn message"},
+            {"level": "error", "message": "Error message"},
+        ]
+        
+        from zerolog_viewer import LogTab
+        
+        # Mock the required attributes
+        mock_tab = Mock()
+        mock_tab.level_filter = 'warn'
+        mock_tab.LOG_LEVELS = LogTab.LOG_LEVELS
+        
+        # Use the actual method
+        filtered = [log for log in test_logs_varied if LogTab._passes_level_filter(mock_tab, log)]
+        
+        # Should exclude debug and info, include warn and error
+        self.assertEqual(len(filtered), 2)
+        self.assertNotIn('debug', [log['level'] for log in filtered])
+        self.assertNotIn('info', [log['level'] for log in filtered])
+        self.assertIn('warn', [log['level'] for log in filtered])
+        self.assertIn('error', [log['level'] for log in filtered])
+    
+    def test_level_filter_error_and_more(self):
+        """Test that 'error' level filter only includes error and fatal logs."""
+        test_logs_varied = [
+            {"level": "debug", "message": "Debug message"},
+            {"level": "info", "message": "Info message"},
+            {"level": "warn", "message": "Warn message"},
+            {"level": "error", "message": "Error message"},
+            {"level": "fatal", "message": "Fatal message"},
+        ]
+        
+        from zerolog_viewer import LogTab
+        
+        # Mock the required attributes
+        mock_tab = Mock()
+        mock_tab.level_filter = 'error'
+        mock_tab.LOG_LEVELS = LogTab.LOG_LEVELS
+        
+        # Use the actual method
+        filtered = [log for log in test_logs_varied if LogTab._passes_level_filter(mock_tab, log)]
+        
+        # Should only include error and fatal
+        self.assertEqual(len(filtered), 2)
+        self.assertIn('error', [log['level'] for log in filtered])
+        self.assertIn('fatal', [log['level'] for log in filtered])
+    
+    def test_level_filter_unknown_level(self):
+        """Test that logs with unknown levels are included by default."""
+        test_logs = [
+            {"level": "custom", "message": "Custom level message"},
+            {"level": "unknown", "message": "Unknown level message"},
+        ]
+        
+        from zerolog_viewer import LogTab
+        
+        # Mock the required attributes
+        mock_tab = Mock()
+        mock_tab.level_filter = 'info'
+        mock_tab.LOG_LEVELS = LogTab.LOG_LEVELS
+        
+        # Use the actual method
+        filtered = [log for log in test_logs if LogTab._passes_level_filter(mock_tab, log)]
+        
+        # Unknown levels should be included
+        self.assertEqual(len(filtered), 2)
 
 
 if __name__ == '__main__':
