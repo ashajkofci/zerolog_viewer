@@ -456,9 +456,13 @@ class LogTab:
         
         # Add sidebar to paned window if not already shown
         if not self.sidebar_visible:
+            # Set initial width before adding to paned window
+            self.sidebar_frame.config(width=300)
             # Allow the sidebar to be resizable by user
-            self.paned_window.add(self.sidebar_frame, weight=1)
+            self.paned_window.add(self.sidebar_frame, weight=0)
             self.sidebar_visible = True
+            # Force the paned window to respect the initial width
+            self.paned_window.update_idletasks()
         
         # Clear existing sidebar content
         for widget in self.sidebar_frame.winfo_children():
@@ -476,13 +480,29 @@ class LogTab:
         scrollbar = ttk.Scrollbar(self.sidebar_frame, orient="vertical", command=canvas.yview)
         scrollable_frame = ttk.Frame(canvas)
         
+        # Store canvas reference for resize handling
+        self.sidebar_canvas = canvas
+        
         scrollable_frame.bind(
             "<Configure>",
             lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
         )
         
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=canvas.winfo_reqwidth())
         canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # Bind canvas resize to update text widget widths
+        canvas.bind('<Configure>', self._on_canvas_resize)
+        
+        # Enable mouse wheel scrolling on the canvas
+        canvas.bind('<MouseWheel>', lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+        canvas.bind('<Button-4>', lambda e: canvas.yview_scroll(-1, "units"))  # Linux scroll up
+        canvas.bind('<Button-5>', lambda e: canvas.yview_scroll(1, "units"))   # Linux scroll down
+        
+        # Also bind to the scrollable frame to capture events when mouse is over content
+        scrollable_frame.bind('<MouseWheel>', lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+        scrollable_frame.bind('<Button-4>', lambda e: canvas.yview_scroll(-1, "units"))
+        scrollable_frame.bind('<Button-5>', lambda e: canvas.yview_scroll(1, "units"))
         
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -491,54 +511,105 @@ class LogTab:
         # Get system default background color from root window
         default_bg = self.app.root.cget('background')
         
+        # Store text widgets for dynamic resizing
+        self.sidebar_text_widgets = []
+        
         for col in self.all_columns:
             if col in self.selected_log:
                 value = self.selected_log[col]
                 frame = ttk.Frame(scrollable_frame)
-                frame.pack(fill=tk.X, pady=2)
+                frame.pack(fill=tk.X, pady=2, padx=5)
                 
-                # Use a Text widget for selectable/copyable content
-                label_text = tk.Text(frame, height=1, wrap=tk.NONE, relief=tk.FLAT, 
-                                    font=('TkDefaultFont', 8, 'bold'), 
-                                    bg=default_bg)
-                label_text.insert('1.0', f"{col}:")
-                label_text.config(state=tk.DISABLED)
-                label_text.pack(anchor='w')
+                # Use a Label for the field name (non-selectable)
+                label = ttk.Label(frame, text=f"{col}:", font=('TkDefaultFont', 8, 'bold'))
+                label.pack(anchor='w')
                 
                 # Check if value is JSON and format it
                 formatted_value = self._format_value_if_json(value)
                 
                 # Use a Text widget for the value to make it selectable
-                value_text = tk.Text(frame, wrap=tk.WORD, relief=tk.FLAT,
-                                    bg=default_bg)
+                value_text = tk.Text(frame, wrap=tk.WORD, relief=tk.SOLID,
+                                    bg=default_bg, borderwidth=1, 
+                                    highlightthickness=0, padx=5, pady=2,
+                                    font=('TkDefaultFont', 9))
                 value_text.insert('1.0', formatted_value)
                 value_text.config(state=tk.DISABLED)
                 
-                # Calculate height dynamically based on content
-                value_str = formatted_value
-                newline_count = value_str.count('\n')
+                # Calculate initial height based on content
+                lines = formatted_value.count('\n') + 1
+                initial_height = min(max(1, lines), 15)
+                value_text.config(height=initial_height)
                 
-                # Estimate wrapped lines based on text length
-                # Use a more dynamic calculation that adjusts to actual content
-                lines_needed = newline_count + 1
+                # Pack with fill to allow horizontal expansion
+                value_text.pack(anchor='w', fill=tk.BOTH, expand=True, pady=2)
                 
-                # For single-line content, estimate wrapped lines
-                if newline_count == 0:
-                    # Estimate ~60 chars per line (adjusts with sidebar width)
-                    chars_per_line = 60
-                    total_chars = len(value_str)
-                    estimated_wrapped_lines = (total_chars // chars_per_line) + (1 if total_chars % chars_per_line else 0)
-                    lines_needed = max(1, estimated_wrapped_lines)
-                
-                # Set height dynamically - no hard limit for better usability
-                value_text.config(height=lines_needed)
-                value_text.pack(anchor='w', fill=tk.X, padx=(10, 0))
+                # Store reference for dynamic height updates
+                self.sidebar_text_widgets.append((value_text, formatted_value))
+        
+        # Initial height calculation after widgets are mapped
+        self.sidebar_frame.after(100, self._update_all_text_heights)
+    
+    def _on_canvas_resize(self, event):
+        """Handle canvas resize to update text widget widths and heights."""
+        if hasattr(self, 'sidebar_canvas') and hasattr(self, 'sidebar_text_widgets'):
+            # Update the width of the window in the canvas
+            canvas_width = event.width - 20  # Account for scrollbar and padding
+            self.sidebar_canvas.itemconfig(1, width=canvas_width)  # Update canvas window width
+            
+            # Schedule text height updates
+            self.sidebar_frame.after(50, self._update_all_text_heights)
+    
+    def _update_text_height(self, text_widget):
+        """Update the height of a text widget based on its content and width."""
+        try:
+            # Make sure widget is ready
+            text_widget.update_idletasks()
+            
+            # Get the actual number of display lines (including wrapped lines)
+            # The Text widget tracks this internally
+            content = text_widget.get('1.0', 'end-1c')
+            
+            if not content:
+                text_widget.config(height=1)
+                return
+            
+            # Enable the widget temporarily to count lines properly
+            state = text_widget.cget('state')
+            text_widget.config(state=tk.NORMAL)
+            
+            # Count the number of display lines using the Text widget's index system
+            # This accounts for wrapping
+            line_count = int(text_widget.index('end-1c').split('.')[0])
+            
+            # Restore state
+            text_widget.config(state=state)
+            
+            # Set height with reasonable limits
+            height = max(1, min(line_count, 20))  # Min 1, max 20 lines visible
+            text_widget.config(height=height)
+            
+        except (tk.TclError, ValueError, AttributeError):
+            # Widget may have been destroyed or not ready
+            pass
+    
+    def _update_all_text_heights(self):
+        """Update heights of all text widgets in sidebar."""
+        if hasattr(self, 'sidebar_text_widgets'):
+            for text_widget, _ in self.sidebar_text_widgets:
+                self._update_text_height(text_widget)
     
     def _format_value_if_json(self, value) -> str:
         """Format value as pretty JSON if it's valid JSON, otherwise return as string."""
+        # If value is already a dict or list (Python object), format it directly
+        if isinstance(value, (dict, list)):
+            try:
+                return json.dumps(value, indent=2, ensure_ascii=False)
+            except (TypeError, ValueError):
+                return str(value)
+        
         value_str = str(value)
         
-        # Try to parse as JSON
+        # Try to parse as JSON string
         try:
             # Only try to parse if it looks like JSON (starts with { or [)
             stripped = value_str.strip()
