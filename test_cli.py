@@ -92,12 +92,15 @@ def test_level_colors():
     print("\nTesting level color mapping...")
     
     try:
-        from zerolog_viewer import ZeroLogViewer
+        from zerolog_viewer import ConfigManager
+        
+        config = ConfigManager.load_config()
+        level_colors = config.get('level_colors', {})
         
         levels = ['debug', 'info', 'warn', 'error', 'fatal']
         for level in levels:
-            if level in ZeroLogViewer.LEVEL_COLORS:
-                color = ZeroLogViewer.LEVEL_COLORS[level]
+            if level in level_colors:
+                color = level_colors[level]
                 print(f"✓ Level '{level}' -> color {color}")
             else:
                 print(f"✗ Level '{level}' not found")
