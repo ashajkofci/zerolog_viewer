@@ -463,49 +463,62 @@ class LogTab:
             self.sidebar_visible = True
             # Force the paned window to respect the initial width
             self.paned_window.update_idletasks()
+            
+            # Create sidebar structure once
+            self._create_sidebar_structure()
         
-        # Clear existing sidebar content
-        for widget in self.sidebar_frame.winfo_children():
-            widget.destroy()
-        
+        # Update content without recreating structure
+        self._update_sidebar_content()
+    
+    def _create_sidebar_structure(self):
+        """Create the sidebar structure once (called only when sidebar is first shown)."""
         # Create sidebar header
-        header_frame = ttk.Frame(self.sidebar_frame)
-        header_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
+        self.sidebar_header_frame = ttk.Frame(self.sidebar_frame)
+        self.sidebar_header_frame.pack(side=tk.TOP, fill=tk.X, padx=5, pady=5)
         
-        ttk.Label(header_frame, text="Log Details", font=('TkDefaultFont', 10, 'bold')).pack(side=tk.LEFT)
-        ttk.Button(header_frame, text="✕", width=3, command=self.hide_sidebar).pack(side=tk.RIGHT)
+        ttk.Label(self.sidebar_header_frame, text="Log Details", font=('TkDefaultFont', 10, 'bold')).pack(side=tk.LEFT)
+        ttk.Button(self.sidebar_header_frame, text="✕", width=3, command=self.hide_sidebar).pack(side=tk.RIGHT)
         
         # Create scrollable frame for metadata
-        canvas = tk.Canvas(self.sidebar_frame)
-        scrollbar = ttk.Scrollbar(self.sidebar_frame, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
+        self.sidebar_canvas = tk.Canvas(self.sidebar_frame)
+        self.sidebar_scrollbar = ttk.Scrollbar(self.sidebar_frame, orient="vertical", command=self.sidebar_canvas.yview)
+        self.sidebar_scrollable_frame = ttk.Frame(self.sidebar_canvas)
         
-        # Store canvas reference for resize handling
-        self.sidebar_canvas = canvas
-        
-        scrollable_frame.bind(
+        self.sidebar_scrollable_frame.bind(
             "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+            lambda e: self.sidebar_canvas.configure(scrollregion=self.sidebar_canvas.bbox("all"))
         )
         
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=canvas.winfo_reqwidth())
-        canvas.configure(yscrollcommand=scrollbar.set)
+        self.sidebar_canvas.create_window((0, 0), window=self.sidebar_scrollable_frame, anchor="nw", width=self.sidebar_canvas.winfo_reqwidth())
+        self.sidebar_canvas.configure(yscrollcommand=self.sidebar_scrollbar.set)
         
         # Bind canvas resize to update text widget widths
-        canvas.bind('<Configure>', self._on_canvas_resize)
+        self.sidebar_canvas.bind('<Configure>', self._on_canvas_resize)
         
         # Enable mouse wheel scrolling on the canvas
-        canvas.bind('<MouseWheel>', lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
-        canvas.bind('<Button-4>', lambda e: canvas.yview_scroll(-1, "units"))  # Linux scroll up
-        canvas.bind('<Button-5>', lambda e: canvas.yview_scroll(1, "units"))   # Linux scroll down
+        self.sidebar_canvas.bind('<MouseWheel>', lambda e: self.sidebar_canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+        self.sidebar_canvas.bind('<Button-4>', lambda e: self.sidebar_canvas.yview_scroll(-1, "units"))  # Linux scroll up
+        self.sidebar_canvas.bind('<Button-5>', lambda e: self.sidebar_canvas.yview_scroll(1, "units"))   # Linux scroll down
         
         # Also bind to the scrollable frame to capture events when mouse is over content
-        scrollable_frame.bind('<MouseWheel>', lambda e: canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
-        scrollable_frame.bind('<Button-4>', lambda e: canvas.yview_scroll(-1, "units"))
-        scrollable_frame.bind('<Button-5>', lambda e: canvas.yview_scroll(1, "units"))
+        self.sidebar_scrollable_frame.bind('<MouseWheel>', lambda e: self.sidebar_canvas.yview_scroll(int(-1*(e.delta/120)), "units"))
+        self.sidebar_scrollable_frame.bind('<Button-4>', lambda e: self.sidebar_canvas.yview_scroll(-1, "units"))
+        self.sidebar_scrollable_frame.bind('<Button-5>', lambda e: self.sidebar_canvas.yview_scroll(1, "units"))
         
-        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.sidebar_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
+        self.sidebar_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    
+    def _update_sidebar_content(self):
+        """Update the sidebar content with the selected log data."""
+        if not hasattr(self, 'sidebar_scrollable_frame'):
+            return
+        
+        # Clear only the content area, not the entire structure
+        for widget in self.sidebar_scrollable_frame.winfo_children():
+            widget.destroy()
+        
+        # Reset scroll position to top
+        self.sidebar_canvas.yview_moveto(0)
         
         # Add metadata content - show all fields
         # Get system default background color from root window
@@ -517,7 +530,7 @@ class LogTab:
         for col in self.all_columns:
             if col in self.selected_log:
                 value = self.selected_log[col]
-                frame = ttk.Frame(scrollable_frame)
+                frame = ttk.Frame(self.sidebar_scrollable_frame)
                 frame.pack(fill=tk.X, pady=2, padx=5)
                 
                 # Use a Label for the field name (non-selectable)
@@ -546,8 +559,8 @@ class LogTab:
                 # Store reference for dynamic height updates
                 self.sidebar_text_widgets.append((value_text, formatted_value))
         
-        # Initial height calculation after widgets are mapped
-        self.sidebar_frame.after(100, self._update_all_text_heights)
+        # Initial height calculation after widgets are mapped (reduced delay)
+        self.sidebar_frame.after(50, self._update_all_text_heights)
     
     def _on_canvas_resize(self, event):
         """Handle canvas resize to update text widget widths and heights."""
