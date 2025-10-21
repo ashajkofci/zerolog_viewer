@@ -339,15 +339,15 @@ class LogTab:
         for log in logs_to_display[:end_index]:
             values = [log.get(col, '') for col in display_columns]
             level = str(log.get('level', '')).lower()
-            tag = level if level in self.LEVEL_COLORS else ''
+            tag = level if level in self.level_colors else ''
             self.tree.insert('', tk.END, values=values, tags=(tag,))
         
         # Update status
         total = len(logs_to_display)
         if end_index < total:
-            self.app.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
+            self.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
         else:
-            self.app.status_var.set(f"Showing all {total:,} log entries")
+            self.status_var.set(f"Showing all {total:,} log entries")
         self.current_page = 0
     
     def on_scroll(self, event):
@@ -374,15 +374,15 @@ class LogTab:
         for log in logs_to_display[start_index:end_index]:
             values = [log.get(col, '') for col in display_columns]
             level = str(log.get('level', '')).lower()
-            tag = level if level in self.LEVEL_COLORS else ''
+            tag = level if level in self.level_colors else ''
             self.tree.insert('', tk.END, values=values, tags=(tag,))
         
         # Update status
         total = len(logs_to_display)
         if end_index < total:
-            self.app.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
+            self.status_var.set(f"Showing {end_index:,} of {total:,} log entries (scroll for more)")
         else:
-            self.app.status_var.set(f"Showing all {total:,} log entries")
+            self.status_var.set(f"Showing all {total:,} log entries")
     
     def sort_by_column(self, column: str):
         """Sort the treeview by the specified column."""
@@ -414,7 +414,7 @@ class LogTab:
         
         # Update status
         direction = "descending" if self.sort_reverse else "ascending"
-        self.app.status_var.set(f"Sorted by '{column}' ({direction})")
+        self.status_var.set(f"Sorted by '{column}' ({direction})")
     
     def apply_search(self, search_text: str):
         """Apply search filter to logs."""
@@ -423,7 +423,7 @@ class LogTab:
         if not search_text:
             self.filtered_logs = []
             self.display_logs()
-            self.app.status_var.set(f"Showing all {len(self.logs):,} log entries")
+            self.status_var.set(f"Showing all {len(self.logs):,} log entries")
             return
         
         # Filter logs containing search text in any field
@@ -435,7 +435,7 @@ class LogTab:
                     break
         
         self.display_logs()
-        self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries")
+        self.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries")
     
     def apply_date_filter(self):
         """Apply date range filter to logs."""
@@ -486,7 +486,7 @@ class LogTab:
             if date_to:
                 date_range.append(f"to {date_to_str}")
             
-            self.app.status_var.set(f"Date filtered: {len(self.logs):,} entries {' '.join(date_range)}")
+            self.status_var.set(f"Date filtered: {len(self.logs):,} entries {' '.join(date_range)}")
             
         except Exception as e:
             messagebox.showerror("Date Filter Error", f"Invalid date format: {str(e)}\nUse ISO 8601 format (e.g., 2025-10-20T17:19:16Z)")
@@ -498,7 +498,7 @@ class LogTab:
         self.logs = self.all_logs.copy()
         self.filtered_logs = []
         self.display_logs()
-        self.app.status_var.set(f"Date filter cleared. Showing all {len(self.logs):,} entries")
+        self.status_var.set(f"Date filter cleared. Showing all {len(self.logs):,} entries")
 
 
 
@@ -817,7 +817,7 @@ class ZeroLogViewer:
         self.tabs.append(tab)
         
         # Load file in background thread
-        self.app.status_var.set(f"Loading {os.path.basename(filename)}...")
+        self.status_var.set(f"Loading {os.path.basename(filename)}...")
         self.root.update_idletasks()
         
         thread = threading.Thread(target=self._load_file_thread, args=(tab, filename))
@@ -847,7 +847,7 @@ class ZeroLogViewer:
                             
                             # Update status periodically
                             if line_num % 10000 == 0:
-                                self.root.after(0, lambda n=line_num: self.app.status_var.set(
+                                self.root.after(0, lambda n=line_num: self.status_var.set(
                                     f"Loading {os.path.basename(filename)}... ({n:,} entries)"
                                 ))
                         except json.JSONDecodeError as e:
