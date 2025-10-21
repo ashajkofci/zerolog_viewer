@@ -56,6 +56,26 @@ class TestZeroLogViewer(unittest.TestCase):
         self.assertIn('error', level_colors)
         self.assertIn('fatal', level_colors)
     
+    def test_get_default_config(self):
+        """Test that get_default_config returns proper default values."""
+        default_config = ConfigManager.get_default_config()
+        
+        # Check that all expected keys are present
+        self.assertIn('visible_columns', default_config)
+        self.assertIn('window_geometry', default_config)
+        self.assertIn('level_colors', default_config)
+        
+        # Check default values
+        self.assertEqual(default_config['visible_columns'], ["time", "level", "message", "url"])
+        self.assertEqual(default_config['window_geometry'], "1200x700")
+        
+        # Check that all level colors are defined
+        level_colors = default_config['level_colors']
+        for level in ['debug', 'info', 'warn', 'warning', 'error', 'fatal', 'panic']:
+            self.assertIn(level, level_colors)
+            self.assertIsInstance(level_colors[level], str)
+            self.assertTrue(level_colors[level].startswith('#'))
+    
     def test_log_parsing(self):
         """Test JSONL parsing functionality."""
         # Create a temporary JSONL file

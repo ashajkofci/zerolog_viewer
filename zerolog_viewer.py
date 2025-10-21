@@ -47,17 +47,8 @@ class ConfigManager:
         return ConfigManager.get_config_dir() / "config.json"
     
     @staticmethod
-    def load_config() -> Dict[str, Any]:
-        """Load configuration from file."""
-        config_file = ConfigManager.get_config_file()
-        if config_file.exists():
-            try:
-                with open(config_file, 'r') as f:
-                    return json.load(f)
-            except Exception as e:
-                print(f"Warning: Failed to load config: {e}")
-        
-        # Default configuration
+    def get_default_config() -> Dict[str, Any]:
+        """Get the default configuration."""
         return {
             "visible_columns": ["time", "level", "message", "url"],
             "window_geometry": "1200x700",
@@ -71,6 +62,20 @@ class ConfigManager:
                 "panic": "#000000"
             }
         }
+    
+    @staticmethod
+    def load_config() -> Dict[str, Any]:
+        """Load configuration from file."""
+        config_file = ConfigManager.get_config_file()
+        if config_file.exists():
+            try:
+                with open(config_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Warning: Failed to load config: {e}")
+        
+        # Return default configuration
+        return ConfigManager.get_default_config()
     
     @staticmethod
     def save_config(config: Dict[str, Any]):
@@ -545,6 +550,8 @@ class ZeroLogViewer:
         menubar.add_cascade(label="Settings", menu=settings_menu)
         settings_menu.add_command(label="Configure Visible Columns...", command=self.configure_columns)
         settings_menu.add_command(label="Configure Level Colors...", command=self.configure_colors)
+        settings_menu.add_separator()
+        settings_menu.add_command(label="Reset to Default Settings", command=self.reset_to_defaults)
         
         # Toolbar frame
         toolbar = ttk.Frame(self.root, padding="5")
@@ -778,6 +785,49 @@ class ZeroLogViewer:
         if color[1]:  # color[1] is the hex value
             color_vars[level].set(color[1])
             color_buttons[level].config(bg=color[1])
+    
+    def reset_to_defaults(self):
+        """Reset all settings to default values."""
+        # Ask for confirmation
+        result = messagebox.askyesno(
+            "Reset to Default Settings",
+            "This will reset all settings to their default values:\n\n"
+            "- Visible columns\n"
+            "- Level colors\n"
+            "- Window geometry\n\n"
+            "Do you want to continue?"
+        )
+        
+        if not result:
+            return
+        
+        # Reset to default configuration
+        self.config = ConfigManager.get_default_config()
+        ConfigManager.save_config(self.config)
+        
+        # Apply new settings to all open tabs
+        for tab in self.tabs:
+            # Update level colors
+            tab.level_colors = self.config["level_colors"]
+            # Reconfigure tags
+            for level, color in tab.level_colors.items():
+                tab.tree.tag_configure(level, foreground=color)
+            
+            # Update visible columns if applicable
+            default_visible = self.config["visible_columns"]
+            tab.visible_columns = [col for col in default_visible if col in tab.all_columns]
+            if not tab.visible_columns:
+                tab.visible_columns = tab.all_columns.copy()
+            
+            # Refresh display
+            tab.display_logs()
+        
+        # Reset window geometry
+        self.root.geometry(self.config["window_geometry"])
+        
+        # Show confirmation message
+        messagebox.showinfo("Settings Reset", "All settings have been reset to default values.")
+        self.status_var.set("Settings reset to defaults")
     
     def on_closing(self):
         """Handle window closing event."""
