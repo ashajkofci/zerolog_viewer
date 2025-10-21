@@ -183,6 +183,14 @@ class LogTab:
         # Bind single click to show metadata in sidebar
         self.tree.bind('<ButtonRelease-1>', self.on_log_click)
         
+        # Bind keyboard navigation to update sidebar
+        self.tree.bind('<Up>', self.on_key_navigation)
+        self.tree.bind('<Down>', self.on_key_navigation)
+        self.tree.bind('<Prior>', self.on_key_navigation)  # Page Up
+        self.tree.bind('<Next>', self.on_key_navigation)   # Page Down
+        self.tree.bind('<Home>', self.on_key_navigation)
+        self.tree.bind('<End>', self.on_key_navigation)
+        
         # Configure tags for level colors
         for level, color in self.level_colors.items():
             self.tree.tag_configure(level, foreground=color)
@@ -212,13 +220,94 @@ class LogTab:
             messagebox.showinfo("No Dates", "No valid dates found in logs.")
             return
         
-        # Set the appropriate field with earliest (from) or latest (to) date
-        if field_type == 'from':
-            selected_date = min(dates)
-            self.date_from_var.set(selected_date.strftime('%Y-%m-%dT%H:%M:%S') + 'Z')
-        else:
-            selected_date = max(dates)
-            self.date_to_var.set(selected_date.strftime('%Y-%m-%dT%H:%M:%S') + 'Z')
+        # Create date picker dialog
+        dialog = tk.Toplevel(self.app.root)
+        dialog.title(f"Select {'From' if field_type == 'from' else 'To'} Date")
+        dialog.geometry("350x300")
+        dialog.transient(self.app.root)
+        dialog.grab_set()
+        
+        # Get min and max dates from logs
+        min_date = min(dates)
+        max_date = max(dates)
+        
+        # Default to min for 'from' and max for 'to'
+        default_date = min_date if field_type == 'from' else max_date
+        
+        # Frame for date/time inputs
+        input_frame = ttk.Frame(dialog, padding="20")
+        input_frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(input_frame, text="Select Date and Time:", font=('TkDefaultFont', 10, 'bold')).pack(pady=(0, 10))
+        
+        # Date inputs
+        date_frame = ttk.Frame(input_frame)
+        date_frame.pack(fill=tk.X, pady=5)
+        
+        ttk.Label(date_frame, text="Year:").grid(row=0, column=0, sticky='e', padx=5, pady=2)
+        year_var = tk.StringVar(value=str(default_date.year))
+        year_entry = ttk.Entry(date_frame, textvariable=year_var, width=8)
+        year_entry.grid(row=0, column=1, sticky='w', padx=5, pady=2)
+        
+        ttk.Label(date_frame, text="Month:").grid(row=1, column=0, sticky='e', padx=5, pady=2)
+        month_var = tk.StringVar(value=str(default_date.month).zfill(2))
+        month_entry = ttk.Entry(date_frame, textvariable=month_var, width=8)
+        month_entry.grid(row=1, column=1, sticky='w', padx=5, pady=2)
+        
+        ttk.Label(date_frame, text="Day:").grid(row=2, column=0, sticky='e', padx=5, pady=2)
+        day_var = tk.StringVar(value=str(default_date.day).zfill(2))
+        day_entry = ttk.Entry(date_frame, textvariable=day_var, width=8)
+        day_entry.grid(row=2, column=1, sticky='w', padx=5, pady=2)
+        
+        # Time inputs
+        ttk.Label(date_frame, text="Hour:").grid(row=3, column=0, sticky='e', padx=5, pady=2)
+        hour_var = tk.StringVar(value=str(default_date.hour).zfill(2))
+        hour_entry = ttk.Entry(date_frame, textvariable=hour_var, width=8)
+        hour_entry.grid(row=3, column=1, sticky='w', padx=5, pady=2)
+        
+        ttk.Label(date_frame, text="Minute:").grid(row=4, column=0, sticky='e', padx=5, pady=2)
+        minute_var = tk.StringVar(value=str(default_date.minute).zfill(2))
+        minute_entry = ttk.Entry(date_frame, textvariable=minute_var, width=8)
+        minute_entry.grid(row=4, column=1, sticky='w', padx=5, pady=2)
+        
+        ttk.Label(date_frame, text="Second:").grid(row=5, column=0, sticky='e', padx=5, pady=2)
+        second_var = tk.StringVar(value=str(default_date.second).zfill(2))
+        second_entry = ttk.Entry(date_frame, textvariable=second_var, width=8)
+        second_entry.grid(row=5, column=1, sticky='w', padx=5, pady=2)
+        
+        # Info label
+        info_label = ttk.Label(input_frame, 
+                              text=f"Available range:\n{min_date.strftime('%Y-%m-%d %H:%M:%S')}\n to \n{max_date.strftime('%Y-%m-%d %H:%M:%S')}", 
+                              font=('TkDefaultFont', 8))
+        info_label.pack(pady=10)
+        
+        # Button frame
+        button_frame = ttk.Frame(dialog)
+        button_frame.pack(fill=tk.X, padx=20, pady=10)
+        
+        def apply_date():
+            try:
+                year = int(year_var.get())
+                month = int(month_var.get())
+                day = int(day_var.get())
+                hour = int(hour_var.get())
+                minute = int(minute_var.get())
+                second = int(second_var.get())
+                
+                selected_date = datetime(year, month, day, hour, minute, second)
+                date_str = selected_date.strftime('%Y-%m-%dT%H:%M:%S') + 'Z'
+                
+                if field_type == 'from':
+                    self.date_from_var.set(date_str)
+                else:
+                    self.date_to_var.set(date_str)
+                
+                dialog.destroy()
+            except ValueError as e:
+                messagebox.showerror("Invalid Date", f"Please enter valid date/time values: {str(e)}", parent=dialog)
+        
+        ttk.Button(button_frame, text="Apply", command=apply_date).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="Cancel", command=dialog.destroy).pack(side=tk.LEFT, padx=5)
     
     def on_log_click(self, event):
         """Show metadata sidebar when a log entry is clicked."""
@@ -241,6 +330,33 @@ class LogTab:
         
         # Show sidebar with metadata
         self.show_sidebar()
+    
+    def on_key_navigation(self, event):
+        """Update sidebar when navigating with keyboard."""
+        # Schedule update after key event is processed
+        self.tree.after(10, self.update_sidebar_from_selection)
+    
+    def update_sidebar_from_selection(self):
+        """Update sidebar based on current selection."""
+        item = self.tree.selection()
+        if not item:
+            return
+        
+        # Get the item index
+        item_id = item[0]
+        item_index = self.tree.index(item_id)
+        
+        # Get the log entry
+        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
+        if item_index >= len(logs_to_display):
+            return
+        
+        log_entry = logs_to_display[item_index]
+        self.selected_log = log_entry
+        
+        # Update sidebar if it's visible
+        if self.sidebar_visible:
+            self.show_sidebar()
     
     def show_sidebar(self):
         """Show the metadata sidebar."""
@@ -279,28 +395,30 @@ class LogTab:
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=5)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
-        # Add metadata content
-        # Show visible columns first
-        ttk.Label(scrollable_frame, text="Visible Columns:", font=('TkDefaultFont', 9, 'bold')).pack(anchor='w', pady=(5, 2))
-        for col in self.visible_columns:
+        # Add metadata content - show all fields
+        for col in self.all_columns:
             if col in self.selected_log:
                 value = self.selected_log[col]
                 frame = ttk.Frame(scrollable_frame)
                 frame.pack(fill=tk.X, pady=2)
-                ttk.Label(frame, text=f"{col}:", font=('TkDefaultFont', 8, 'bold')).pack(anchor='w')
-                ttk.Label(frame, text=str(value), wraplength=280).pack(anchor='w', padx=(10, 0))
-        
-        # Show hidden columns
-        hidden_cols = [col for col in self.all_columns if col not in self.visible_columns]
-        if hidden_cols:
-            ttk.Label(scrollable_frame, text="Hidden Columns:", font=('TkDefaultFont', 9, 'bold')).pack(anchor='w', pady=(10, 2))
-            for col in hidden_cols:
-                if col in self.selected_log:
-                    value = self.selected_log[col]
-                    frame = ttk.Frame(scrollable_frame)
-                    frame.pack(fill=tk.X, pady=2)
-                    ttk.Label(frame, text=f"{col}:", font=('TkDefaultFont', 8, 'bold')).pack(anchor='w')
-                    ttk.Label(frame, text=str(value), wraplength=280).pack(anchor='w', padx=(10, 0))
+                
+                # Use a Text widget for selectable/copyable content
+                label_text = tk.Text(frame, height=1, wrap=tk.NONE, relief=tk.FLAT, 
+                                    font=('TkDefaultFont', 8, 'bold'), 
+                                    bg=scrollable_frame.cget('background'))
+                label_text.insert('1.0', f"{col}:")
+                label_text.config(state=tk.DISABLED)
+                label_text.pack(anchor='w')
+                
+                # Use a Text widget for the value to make it selectable
+                value_text = tk.Text(frame, wrap=tk.WORD, relief=tk.FLAT,
+                                    bg=scrollable_frame.cget('background'))
+                value_text.insert('1.0', str(value))
+                value_text.config(state=tk.DISABLED)
+                # Calculate height based on content
+                lines = str(value).count('\n') + 1
+                value_text.config(height=min(lines, 10))
+                value_text.pack(anchor='w', fill=tk.X, padx=(10, 0))
     
     def hide_sidebar(self):
         """Hide the metadata sidebar."""
