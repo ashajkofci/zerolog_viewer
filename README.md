@@ -11,7 +11,7 @@ A cross-platform GUI application for viewing and analyzing JSONL (JSON Lines) lo
 - 🕐 **Time-based indexing**: Logs are automatically sorted by timestamp
 - 🔄 **Sortable columns**: Click any column header to sort
 - 🔍 **Debounced search**: Real-time search with 300ms debounce for smooth performance
-- 📅 **Date range filtering**: Filter logs by date range (optional)
+- 📅 **Date range filtering**: Filter logs by date range in ISO 8601 format (e.g., `2025-10-20T17:19:16Z`)
 - 🎨 **Color-coded levels**: Different colors for debug, info, warn, error, etc.
 - 🚀 **High performance**: Efficiently handles large files (100MB+) with lazy loading
 - 💾 **Standalone executables**: Pre-built binaries available for all platforms
@@ -110,37 +110,6 @@ dist\zerolog_viewer.exe  # Windows
 7. **Filter by date** using the date range fields (optional)
 8. **Adjust columns** by dragging column borders
 
-### New in This Version
-
-#### Multi-Tab Interface
-- Open multiple log files simultaneously
-- Each file opens in its own tab
-- Switch between files easily
-- Close tabs when done
-
-#### Drag & Drop Support
-- Drag files from your file explorer
-- Drop them into the application window
-- Multiple files open in separate tabs automatically
-
-#### Date Range Filtering
-- Enter "From" and/or "To" dates in ISO 8601 format
-- Example: `2025-10-20T17:19:16Z`
-- Click "Apply Date Filter" to filter logs
-- Click "Clear Date Filter" to show all logs
-
-#### Debounced Search
-- Search input now has a 300ms debounce
-- Prevents lag when typing quickly
-- Smoother user experience
-
-#### Performance Improvements
-- Lazy loading: Only 1,000 items loaded initially
-- Scroll down to load more items automatically
-- Background file loading for large files
-- Progress indicators during loading
-- Can handle 100MB+ files efficiently
-
 ### Sample JSONL Format
 
 The viewer works with any JSONL file, such as:
@@ -160,89 +129,6 @@ Logs are automatically color-coded based on their level:
 - 🟠 **Warn/Warning**: Orange
 - 🔴 **Error**: Red
 - ⚫ **Fatal/Panic**: Dark Red
-
-
-
-## Creating a Release
-
-There are two ways to create a new release:
-
-### Method 1: Workflow Dispatch (Recommended) ⭐
-
-1. Go to the **Actions** tab in GitHub
-2. Select **"Build and Release"** workflow
-3. Click **"Run workflow"** button
-4. Choose version bump type from dropdown:
-   - **patch**: Bug fixes (0.2.0 → 0.2.1)
-   - **minor**: New features (0.2.0 → 0.3.0)
-   - **major**: Breaking changes (0.2.0 → 1.0.0)
-5. Click **"Run workflow"**
-
-The workflow will automatically:
-- ✅ Run all tests
-- ✅ Bump the version in the VERSION file
-- ✅ Commit and push version change
-- ✅ Create and push git tag
-- ✅ Build packages for all platforms:
-  - **Linux**: DEB package with desktop integration
-  - **macOS**: DMG installer with app bundle
-  - **Windows**: Standalone executable
-- ✅ Create a GitHub release with all artifacts
-
-**Total time:** ~10-15 minutes
-
-### Method 2: Manual Tag Push
-
-1. Update the VERSION file manually:
-   ```bash
-   echo "0.3.0" > VERSION
-   ```
-2. Commit the change:
-   ```bash
-   git add VERSION
-   git commit -m "Bump version to 0.3.0"
-   ```
-3. Create and push tag:
-   ```bash
-   git tag v0.3.0
-   git push origin main
-   git push origin v0.3.0
-   ```
-
-GitHub Actions will automatically build and release.
-
-### Version Management
-
-Versions follow semantic versioning and are stored in the `VERSION` file:
-
-- **Patch** (0.2.0 → 0.2.1): Bug fixes and minor updates
-- **Minor** (0.2.0 → 0.3.0): New features, backwards compatible
-- **Major** (0.2.0 → 1.0.0): Breaking changes
-
-### Troubleshooting Releases
-
-**Workflow Failed?**
-1. Check the Actions tab for error logs
-2. Look at the specific job that failed
-3. Common issues:
-   - Tests failed → Fix tests first
-   - Build failed → Check dependencies
-   - Permission denied → Check repository settings
-
-**Need to Cancel?**
-- Go to Actions tab
-- Click on the running workflow
-- Click "Cancel workflow"
-
-**Delete a Release:**
-```bash
-# Delete tag locally and remotely
-git tag -d vX.Y.Z
-git push origin :refs/tags/vX.Y.Z
-
-# Delete release on GitHub
-# Go to Releases → Click on the release → Delete
-```
 
 ## Troubleshooting
 
@@ -290,39 +176,6 @@ python test_zerolog_viewer.py
 # Run CLI tests
 python test_cli.py
 ```
-
-## Creating a Release
-
-There are two ways to create a new release:
-
-### Method 1: Manual Workflow Dispatch (Recommended)
-
-1. Go to the Actions tab in GitHub
-2. Select "Build and Release" workflow
-3. Click "Run workflow"
-4. Choose version bump type:
-   - **patch**: Bug fixes (0.2.0 → 0.2.1)
-   - **minor**: New features (0.2.0 → 0.3.0)
-   - **major**: Breaking changes (0.2.0 → 1.0.0)
-5. The workflow will:
-   - Run all tests
-   - Bump the version in the VERSION file
-   - Create a git tag
-   - Build packages for all platforms:
-     - **Linux**: DEB package
-     - **macOS**: DMG installer
-     - **Windows**: Installer (with Start Menu shortcuts) and standalone executable
-   - Create a GitHub release with all artifacts
-
-### Method 2: Git Tag Push
-
-1. Update the VERSION file manually
-2. Create and push a tag:
-   ```bash
-   git tag v1.1.0
-   git push origin v1.1.0
-   ```
-3. GitHub Actions will automatically build packages for all platforms
 
 ## Contributing
 
