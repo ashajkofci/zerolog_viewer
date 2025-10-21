@@ -762,6 +762,8 @@ class ZeroLogViewer:
         self.search_var.trace('w', lambda *args: self.debounced_search())
         search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=30)
         search_entry.pack(side=tk.LEFT, padx=2)
+        # Bind Enter key to apply search immediately (without debounce)
+        search_entry.bind('<Return>', lambda event: self.apply_search())
         
         # Clear search button
         ttk.Button(toolbar, text="Clear", command=self.clear_search).pack(side=tk.LEFT, padx=2)
