@@ -313,7 +313,7 @@ class LogTab:
         offset_combo.pack(side=tk.LEFT, padx=5)
         
         def use_selected_log():
-            """Use the currently selected log entry's timestamp with offset."""
+            """Use the currently selected log entry's timestamp with offset for both From and To fields."""
             if not self.selected_log:
                 messagebox.showinfo("No Selection", "Please select a log entry first.", parent=dialog)
                 return
@@ -336,20 +336,23 @@ class LogTab:
                 elif "hour" in offset_str:
                     offset_seconds = int(offset_str.split()[0]) * 3600
                 
-                # Apply offset based on field type
-                # For 'from', subtract offset; for 'to', add offset
-                if field_type == 'from':
-                    adjusted_time = log_time - timedelta(seconds=offset_seconds)
-                else:
-                    adjusted_time = log_time + timedelta(seconds=offset_seconds)
+                # Apply offset for both From (subtract) and To (add) fields
+                from_time = log_time - timedelta(seconds=offset_seconds)
+                to_time = log_time + timedelta(seconds=offset_seconds)
                 
-                # Update the date/time inputs
-                year_var.set(str(adjusted_time.year))
-                month_var.set(str(adjusted_time.month).zfill(2))
-                day_var.set(str(adjusted_time.day).zfill(2))
-                hour_var.set(str(adjusted_time.hour).zfill(2))
-                minute_var.set(str(adjusted_time.minute).zfill(2))
-                second_var.set(str(adjusted_time.second).zfill(2))
+                # Format dates
+                from_date_str = from_time.strftime('%Y-%m-%dT%H:%M:%S') + 'Z'
+                to_date_str = to_time.strftime('%Y-%m-%dT%H:%M:%S') + 'Z'
+                
+                # Set both From and To fields
+                self.date_from_var.set(from_date_str)
+                self.date_to_var.set(to_date_str)
+                
+                # Close the dialog
+                dialog.destroy()
+                
+                # Apply the date filter automatically
+                self.apply_date_filter()
                 
             except Exception as e:
                 messagebox.showerror("Error", f"Failed to parse timestamp: {str(e)}", parent=dialog)
