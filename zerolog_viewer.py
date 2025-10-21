@@ -91,6 +91,17 @@ class ConfigManager:
 class LogTab:
     """Represents a single tab with log data."""
     
+    # Define log level hierarchy for filtering
+    LOG_LEVELS = {
+        'debug': 0,
+        'info': 1,
+        'warn': 2,
+        'warning': 2,  # Same as warn
+        'error': 3,
+        'fatal': 4,
+        'panic': 4  # Same as fatal
+    }
+    
     def __init__(self, parent_notebook: ttk.Notebook, filename: str, app_instance):
         """Initialize a log tab."""
         self.parent_notebook = parent_notebook
@@ -109,6 +120,7 @@ class LogTab:
         self.current_page = 0
         self.sidebar_visible = False
         self.selected_log = None
+        self.level_filter = 'all'  # Default to show all logs
         
         # Get level colors from config
         self.level_colors = self.app.config.get("level_colors", {
@@ -755,33 +767,78 @@ class LogTab:
         direction = "descending" if self.sort_reverse else "ascending"
         self.app.status_var.set(f"Sorted by '{column}' ({direction})")
     
+    def apply_level_filter(self, level_filter: str):
+        """Apply log level filter."""
+        self.level_filter = level_filter
+        # Re-apply all filters including search
+        search_text = self.app.search_var.get() if hasattr(self.app, 'search_var') else ''
+        self.apply_search(search_text)
+    
+    def _passes_level_filter(self, log: Dict[str, Any]) -> bool:
+        """Check if a log entry passes the level filter."""
+        if self.level_filter == 'all':
+            return True
+        
+        log_level = str(log.get('level', '')).lower()
+        
+        # Get the numeric level of the log entry
+        log_level_value = self.LOG_LEVELS.get(log_level, -1)
+        
+        # If log level is unknown, include it by default
+        if log_level_value == -1:
+            return True
+        
+        # Get the filter threshold
+        filter_value = self.LOG_LEVELS.get(self.level_filter, 0)
+        
+        # Include logs at or above the filter level
+        return log_level_value >= filter_value
+    
     def apply_search(self, search_text: str):
-        """Apply search filter to logs."""
+        """Apply search filter to logs, including level filter."""
         search_text = search_text.lower()
         
         if not search_text:
             # Store the currently selected log before clearing search
             selected_log_to_restore = self.selected_log
             
-            self.filtered_logs = []
+            # Apply level filter only
+            if self.level_filter == 'all':
+                self.filtered_logs = []
+            else:
+                self.filtered_logs = [log for log in self.logs if self._passes_level_filter(log)]
+            
             self.display_logs()
-            self.app.status_var.set(f"Showing all {len(self.logs):,} log entries")
+            
+            if self.level_filter == 'all':
+                self.app.status_var.set(f"Showing all {len(self.logs):,} log entries")
+            else:
+                self.app.status_var.set(f"Showing {len(self.filtered_logs):,} of {len(self.logs):,} log entries (level: {self.level_filter}+)")
             
             # Restore selection and scroll to it
             if selected_log_to_restore:
                 self.scroll_to_log(selected_log_to_restore)
             return
         
-        # Filter logs containing search text in any field
+        # Filter logs containing search text in any field AND passing level filter
         self.filtered_logs = []
         for log in self.logs:
+            # First check level filter
+            if not self._passes_level_filter(log):
+                continue
+            
+            # Then check search text
             for value in log.values():
                 if search_text in str(value).lower():
                     self.filtered_logs.append(log)
                     break
         
         self.display_logs()
-        self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries")
+        
+        if self.level_filter == 'all':
+            self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries")
+        else:
+            self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries (level: {self.level_filter}+)")
     
     def apply_date_filter(self):
         """Apply date range filter to logs."""
@@ -961,6 +1018,19 @@ class ZeroLogViewer:
         # Clear search button
         ttk.Button(toolbar, text="Clear", command=self.clear_search).pack(side=tk.LEFT, padx=2)
         
+        # Log level filter
+        ttk.Label(toolbar, text="Level:").pack(side=tk.LEFT, padx=(10, 2))
+        self.level_filter_var = tk.StringVar(value="All logs")
+        level_filter_combo = ttk.Combobox(
+            toolbar, 
+            textvariable=self.level_filter_var,
+            values=["All logs", "Debug and more", "Info and more", "Warn and more", "Error and more"],
+            width=15,
+            state="readonly"
+        )
+        level_filter_combo.pack(side=tk.LEFT, padx=2)
+        level_filter_combo.bind('<<ComboboxSelected>>', lambda event: self.apply_level_filter())
+        
         # Status bar
         self.status_var = tk.StringVar()
         self.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
@@ -1023,6 +1093,21 @@ class ZeroLogViewer:
     def clear_search(self):
         """Clear the search filter."""
         self.search_var.set('')
+    
+    def apply_level_filter(self):
+        """Apply log level filter to current tab."""
+        current_tab = self.get_current_tab()
+        if current_tab:
+            # Map display name to internal level name
+            level_map = {
+                "All logs": "all",
+                "Debug and more": "debug",
+                "Info and more": "info",
+                "Warn and more": "warn",
+                "Error and more": "error"
+            }
+            level_filter = level_map.get(self.level_filter_var.get(), "all")
+            current_tab.apply_level_filter(level_filter)
     
     def configure_columns(self):
         """Open dialog to configure visible columns."""
