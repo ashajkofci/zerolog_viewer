@@ -153,14 +153,10 @@ jobs:
     - name: Install NSIS
       run: |
         choco install nsis -y
-        $env:PATH = "C:\Program Files (x86)\NSIS;$env:PATH"
-        [System.Environment]::SetEnvironmentVariable('PATH', $env:PATH, [System.EnvironmentVariableTarget]::Machine)
     
     - name: Build installer with NSIS
-      shell: cmd
       run: |
-        set VERSION=${{ steps.get_version.outputs.version }}
-        "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=%VERSION% installer.nsi
+        & "C:\Program Files (x86)\NSIS\makensis.exe" /DVERSION=${{ steps.get_version.outputs.version }} installer.nsi
     
     - name: Upload standalone EXE artifact
       uses: actions/upload-artifact@v4

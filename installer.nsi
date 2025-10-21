@@ -3,8 +3,10 @@
 
 !include "MUI2.nsh"
 
-; Version info (will be replaced during build)
-!define VERSION "0.2.0"
+; Version info (can be overridden with /DVERSION=x.x.x on command line)
+!ifndef VERSION
+  !define VERSION "0.2.0"
+!endif
 !define PRODUCT_NAME "ZeroLog Viewer"
 !define PRODUCT_PUBLISHER "ZeroLog Viewer Team"
 !define PRODUCT_WEB_SITE "https://github.com/ashajkofci/zerolog_viewer"
