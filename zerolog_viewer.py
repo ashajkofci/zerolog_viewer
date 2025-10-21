@@ -135,7 +135,9 @@ class LogTab:
         
         # Create tab frame
         self.frame = ttk.Frame(parent_notebook)
-        parent_notebook.add(self.frame, text=os.path.basename(filename))
+        # Add close button to tab text
+        tab_text = f"{os.path.basename(filename)}  ✕"
+        parent_notebook.add(self.frame, text=tab_text)
         
         self._create_tab_ui()
     
@@ -1042,6 +1044,17 @@ class ZeroLogViewer:
         self.notebook.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=5, pady=5)
         self.notebook.bind('<<NotebookTabChanged>>', self.on_tab_changed)
         
+        # Bind click event for close button and drag-and-drop
+        self.notebook.bind('<Button-1>', self.on_tab_click)
+        self.notebook.bind('<ButtonPress-1>', self.on_tab_press)
+        self.notebook.bind('<B1-Motion>', self.on_tab_drag)
+        self.notebook.bind('<ButtonRelease-1>', self.on_tab_release)
+        
+        # Variables for drag and drop
+        self.drag_start_x = None
+        self.drag_start_tab = None
+        self.drag_start_tab_x = None
+        
         self.search_debounce_id: Optional[str] = None
     
     def on_drop(self, event):
@@ -1061,6 +1074,103 @@ class ZeroLogViewer:
         """Handle tab change event."""
         # Status bar is now centralized - no need to update from tabs
         pass
+    
+    def on_tab_click(self, event):
+        """Handle click on tab - not used, but kept for potential future use."""
+        pass
+    
+    def on_tab_press(self, event):
+        """Handle mouse press on tab for drag start."""
+        try:
+            clicked_tab = self.notebook.tk.call(self.notebook._w, "identify", "tab", event.x, event.y)
+            if clicked_tab != '':
+                tab_index = int(clicked_tab)
+                self.drag_start_x = event.x
+                self.drag_start_tab = tab_index
+                
+                # Store the initial tab position for close button detection
+                tab_coords = self.notebook.bbox(tab_index)
+                if tab_coords:
+                    self.drag_start_tab_x = tab_coords[0]
+            else:
+                self.drag_start_x = None
+                self.drag_start_tab = None
+                self.drag_start_tab_x = None
+        except:
+            self.drag_start_x = None
+            self.drag_start_tab = None
+            self.drag_start_tab_x = None
+    
+    def on_tab_drag(self, event):
+        """Handle dragging of tab."""
+        if self.drag_start_tab is None or self.drag_start_x is None:
+            return
+        
+        # Check if we've moved enough to consider it a drag (not just a click)
+        if abs(event.x - self.drag_start_x) < 10:
+            return
+        
+        try:
+            # Get the tab currently under the mouse
+            target_tab = self.notebook.tk.call(self.notebook._w, "identify", "tab", event.x, event.y)
+            if target_tab != '' and target_tab != self.drag_start_tab:
+                target_index = int(target_tab)
+                source_index = self.drag_start_tab
+                
+                # Reorder the tabs
+                if abs(target_index - source_index) >= 1:
+                    self.reorder_tabs(source_index, target_index)
+                    # Update drag start position
+                    self.drag_start_tab = target_index
+        except:
+            pass
+    
+    def on_tab_release(self, event):
+        """Handle mouse release after drag - check for close button click."""
+        # Check if this was a click (not a drag) on the close button
+        if self.drag_start_tab is not None and self.drag_start_x is not None:
+            # If mouse didn't move much, it's a click not a drag
+            if abs(event.x - self.drag_start_x) < 10:
+                try:
+                    # Check if click was in close button area
+                    tab_index = self.drag_start_tab
+                    tab_coords = self.notebook.bbox(tab_index)
+                    if tab_coords:
+                        tab_x1, tab_y1, tab_x2, tab_y2 = tab_coords
+                        tab_width = tab_x2 - tab_x1
+                        click_offset = event.x - tab_x1
+                        
+                        # If click is in the rightmost 30 pixels of the tab, treat as close button
+                        if click_offset > tab_width - 30:
+                            self.close_tab(tab_index)
+                except:
+                    pass
+        
+        # Reset drag state
+        self.drag_start_x = None
+        self.drag_start_tab = None
+        self.drag_start_tab_x = None
+    
+    def reorder_tabs(self, source_index: int, target_index: int):
+        """Reorder tabs by moving source to target position."""
+        if source_index == target_index:
+            return
+        
+        if 0 <= source_index < len(self.tabs) and 0 <= target_index < len(self.tabs):
+            # Move the tab in our list
+            tab = self.tabs.pop(source_index)
+            self.tabs.insert(target_index, tab)
+            
+            # Move in the notebook widget
+            self.notebook.insert(target_index, self.notebook.tabs()[source_index])
+    
+    def close_tab(self, tab_index: int):
+        """Close a tab at the specified index."""
+        if 0 <= tab_index < len(self.tabs):
+            self.notebook.forget(tab_index)
+            self.tabs.pop(tab_index)
+            if not self.tabs:
+                self.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
     
     def get_current_tab(self) -> Optional[LogTab]:
         """Get the currently active tab."""
