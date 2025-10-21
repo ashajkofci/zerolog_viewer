@@ -565,7 +565,7 @@ class ZeroLogViewer:
         
         # Status bar
         self.status_var = tk.StringVar()
-        self.app.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
+        self.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
         status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
         status_bar.pack(side=tk.BOTTOM, fill=tk.X)
         
@@ -587,10 +587,8 @@ class ZeroLogViewer:
     
     def on_tab_changed(self, event):
         """Handle tab change event."""
-        # Update status bar when switching tabs
-        current_tab = self.get_current_tab()
-        if current_tab:
-            self.app.status_var.set(current_tab.status_var.get())
+        # Status bar is now centralized - no need to update from tabs
+        pass
     
     def get_current_tab(self) -> Optional[LogTab]:
         """Get the currently active tab."""
@@ -610,7 +608,7 @@ class ZeroLogViewer:
             self.notebook.forget(tab_index)
             self.tabs.remove(current_tab)
             if not self.tabs:
-                self.app.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
+                self.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
     
     def debounced_search(self):
         """Debounce search input to avoid too many updates."""

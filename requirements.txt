@@ -7,3 +7,6 @@ tkinterdnd2>=0.3.0
 
 # For building executables
 pyinstaller>=6.0.0
+
+# For testing
+pytest>=7.0.0
