@@ -977,11 +977,15 @@ class ZeroLogViewer:
     def on_drop(self, event):
         """Handle drag and drop files."""
         files = self.root.tk.splitlist(event.data)
+        valid_files = []
         for file_path in files:
             # Remove curly braces if present (Windows)
             file_path = file_path.strip('{}')
             if os.path.isfile(file_path):
-                self.load_file(file_path)
+                valid_files.append(file_path)
+        
+        if valid_files:
+            self._handle_multiple_files(valid_files)
     
     def on_tab_changed(self, event):
         """Handle tab change event."""
@@ -1248,6 +1252,7 @@ class ZeroLogViewer:
         filenames = filedialog.askopenfilenames(
             title="Open JSONL File(s)",
             filetypes=[
+                ("All supported", "*.jsonl *.json *.log"),
                 ("JSONL files", "*.jsonl"),
                 ("JSON files", "*.json"),
                 ("Log files", "*.log"),
@@ -1255,8 +1260,80 @@ class ZeroLogViewer:
             ]
         )
         
-        for filename in filenames:
-            if filename:
+        if filenames:
+            self._handle_multiple_files(list(filenames))
+    
+    def _handle_multiple_files(self, filenames: List[str]):
+        """Handle opening multiple files - ask user if they want to merge or open separately."""
+        if not filenames:
+            return
+        
+        # If only one file, just load it normally
+        if len(filenames) == 1:
+            self.load_file(filenames[0])
+            return
+        
+        # Ask user what to do with multiple files
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Multiple Files Selected")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Center dialog over parent window
+        dialog.update_idletasks()
+        width = 500
+        height = 200
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (width // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (height // 2)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
+        
+        # Message
+        message_frame = ttk.Frame(dialog, padding="20")
+        message_frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(message_frame, 
+                 text=f"You have selected {len(filenames)} files.",
+                 font=('TkDefaultFont', 10, 'bold')).pack(pady=(0, 10))
+        
+        ttk.Label(message_frame, 
+                 text="How would you like to open them?",
+                 font=('TkDefaultFont', 10)).pack(pady=(0, 20))
+        
+        # Store user choice
+        user_choice = {'action': None}
+        
+        def on_merge():
+            user_choice['action'] = 'merge'
+            dialog.destroy()
+        
+        def on_separate():
+            user_choice['action'] = 'separate'
+            dialog.destroy()
+        
+        def on_cancel():
+            user_choice['action'] = 'cancel'
+            dialog.destroy()
+        
+        # Buttons
+        button_frame = ttk.Frame(message_frame)
+        button_frame.pack(fill=tk.X, pady=10)
+        
+        ttk.Button(button_frame, text="Merge into One Tab", 
+                  command=on_merge, width=20).pack(side=tk.LEFT, padx=5, expand=True)
+        ttk.Button(button_frame, text="Open in Separate Tabs", 
+                  command=on_separate, width=20).pack(side=tk.LEFT, padx=5, expand=True)
+        
+        ttk.Button(message_frame, text="Cancel", 
+                  command=on_cancel).pack(pady=(10, 0))
+        
+        # Wait for dialog to close
+        self.root.wait_window(dialog)
+        
+        # Handle user choice
+        if user_choice['action'] == 'merge':
+            self.load_merged_files(filenames)
+        elif user_choice['action'] == 'separate':
+            for filename in filenames:
                 self.load_file(filename)
     
     def load_file(self, filename: str):
@@ -1356,6 +1433,116 @@ class ZeroLogViewer:
         """Finalize loading on the main thread."""
         tab.display_logs()
         self.status_var.set(f"Loaded {len(tab.logs):,} log entries from {os.path.basename(tab.filename)}")
+    
+    def load_merged_files(self, filenames: List[str]):
+        """Load and merge multiple files into a single tab."""
+        if not filenames:
+            return
+        
+        # Create a merged filename for the tab
+        if len(filenames) == 2:
+            merged_name = f"{os.path.basename(filenames[0])} + {os.path.basename(filenames[1])}"
+        else:
+            merged_name = f"{len(filenames)} merged files"
+        
+        # Check if merged tab already exists with this name
+        for tab in self.tabs:
+            if tab.filename == merged_name:
+                # Switch to existing tab
+                tab_index = self.tabs.index(tab)
+                self.notebook.select(tab_index)
+                return
+        
+        # Create new tab
+        tab = LogTab(self.notebook, merged_name, self)
+        self.tabs.append(tab)
+        
+        # Load files in background thread
+        self.status_var.set(f"Loading and merging {len(filenames)} files...")
+        self.root.update_idletasks()
+        
+        thread = threading.Thread(target=self._load_merged_files_thread, args=(tab, filenames))
+        thread.daemon = True
+        thread.start()
+    
+    def _load_merged_files_thread(self, tab: LogTab, filenames: List[str]):
+        """Load and merge multiple files in background thread."""
+        try:
+            all_logs = []
+            columns = set()
+            
+            for file_idx, filename in enumerate(filenames):
+                # Update status
+                self.root.after(0, lambda f=filename, idx=file_idx: self.status_var.set(
+                    f"Loading file {idx + 1}/{len(filenames)}: {os.path.basename(f)}..."
+                ))
+                
+                # Read and parse JSONL file
+                with open(filename, 'r', encoding='utf-8') as f:
+                    line_num = 0
+                    for line in f:
+                        line = line.strip()
+                        if line:
+                            try:
+                                log_entry = json.loads(line)
+                                all_logs.append(log_entry)
+                                
+                                # Collect all unique column names
+                                columns.update(log_entry.keys())
+                                
+                                line_num += 1
+                                
+                                # Update status periodically
+                                if line_num % 10000 == 0:
+                                    self.root.after(0, lambda n=line_num, f=filename: self.status_var.set(
+                                        f"Loading {os.path.basename(f)}... ({n:,} entries)"
+                                    ))
+                            except json.JSONDecodeError as e:
+                                print(f"Warning: Skipping invalid JSON in {filename} on line {line_num}: {e}")
+            
+            if not all_logs:
+                self.root.after(0, lambda: messagebox.showwarning("No Data", "No valid log entries found in the files."))
+                self.root.after(0, lambda: self.close_current_tab())
+                return
+            
+            # Sort columns: time first, level second, then others alphabetically
+            priority_columns = ['time', 'level', 'message']
+            sorted_columns = []
+            for col in priority_columns:
+                if col in columns:
+                    sorted_columns.append(col)
+                    columns.discard(col)
+            sorted_columns.extend(sorted(columns))
+            
+            tab.columns = sorted_columns
+            tab.all_columns = sorted_columns.copy()
+            
+            # Set visible columns from config
+            default_visible = ['time', 'level', 'message', 'url']
+            config_visible = self.config.get("visible_columns", default_visible)
+            tab.visible_columns = [col for col in config_visible if col in tab.all_columns]
+            if not tab.visible_columns:
+                tab.visible_columns = [col for col in default_visible if col in tab.all_columns]
+            if not tab.visible_columns:
+                tab.visible_columns = tab.all_columns.copy()
+            
+            tab.all_logs = all_logs
+            tab.logs = all_logs.copy()
+            
+            # Sort by time
+            tab.logs.sort(key=lambda x: x.get('time', ''))
+            
+            # Display on main thread
+            self.root.after(0, lambda: self._finalize_merged_load(tab, len(filenames)))
+            
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to load files: {str(e)}"))
+            self.root.after(0, lambda: self.close_current_tab())
+    
+    def _finalize_merged_load(self, tab: LogTab, file_count: int):
+        """Finalize merged load on the main thread."""
+        tab.display_logs()
+        self.status_var.set(f"Loaded and merged {len(tab.logs):,} log entries from {file_count} files")
     
 def main():
     """Main entry point for the application."""
