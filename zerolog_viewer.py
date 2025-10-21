@@ -223,9 +223,16 @@ class LogTab:
         # Create date picker dialog
         dialog = tk.Toplevel(self.app.root)
         dialog.title(f"Select {'From' if field_type == 'from' else 'To'} Date")
-        dialog.geometry("350x300")
         dialog.transient(self.app.root)
         dialog.grab_set()
+        
+        # Center dialog over parent window
+        dialog.update_idletasks()
+        width = 350
+        height = 380
+        x = self.app.root.winfo_x() + (self.app.root.winfo_width() // 2) - (width // 2)
+        y = self.app.root.winfo_y() + (self.app.root.winfo_height() // 2) - (height // 2)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
         
         # Get min and max dates from logs
         min_date = min(dates)
@@ -396,8 +403,8 @@ class LogTab:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Add metadata content - show all fields
-        # Get system default background color
-        default_bg = self.frame.cget('background')
+        # Get system default background color from root window
+        default_bg = self.app.root.cget('background')
         
         for col in self.all_columns:
             if col in self.selected_log:
@@ -768,7 +775,15 @@ class ZeroLogViewer:
         # Create dialog
         dialog = tk.Toplevel(self.root)
         dialog.title("Configure Visible Columns")
-        dialog.geometry("400x500")
+        dialog.transient(self.root)
+        
+        # Center dialog over parent window
+        dialog.update_idletasks()
+        width = 400
+        height = 500
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (width // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (height // 2)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
         
         # Instructions
         ttk.Label(dialog, text="Select columns to display:", font=('TkDefaultFont', 10, 'bold')).pack(pady=10)
@@ -831,7 +846,15 @@ class ZeroLogViewer:
         # Create dialog
         dialog = tk.Toplevel(self.root)
         dialog.title("Configure Level Colors")
-        dialog.geometry("400x400")
+        dialog.transient(self.root)
+        
+        # Center dialog over parent window
+        dialog.update_idletasks()
+        width = 400
+        height = 400
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (width // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (height // 2)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
         
         # Instructions
         ttk.Label(dialog, text="Select colors for log levels:", font=('TkDefaultFont', 10, 'bold')).pack(pady=10)
