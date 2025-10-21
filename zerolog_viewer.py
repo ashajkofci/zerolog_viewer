@@ -396,6 +396,9 @@ class LogTab:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         
         # Add metadata content - show all fields
+        # Get system default background color
+        default_bg = self.frame.cget('background')
+        
         for col in self.all_columns:
             if col in self.selected_log:
                 value = self.selected_log[col]
@@ -405,14 +408,14 @@ class LogTab:
                 # Use a Text widget for selectable/copyable content
                 label_text = tk.Text(frame, height=1, wrap=tk.NONE, relief=tk.FLAT, 
                                     font=('TkDefaultFont', 8, 'bold'), 
-                                    bg=scrollable_frame.cget('background'))
+                                    bg=default_bg)
                 label_text.insert('1.0', f"{col}:")
                 label_text.config(state=tk.DISABLED)
                 label_text.pack(anchor='w')
                 
                 # Use a Text widget for the value to make it selectable
                 value_text = tk.Text(frame, wrap=tk.WORD, relief=tk.FLAT,
-                                    bg=scrollable_frame.cget('background'))
+                                    bg=default_bg)
                 value_text.insert('1.0', str(value))
                 value_text.config(state=tk.DISABLED)
                 # Calculate height based on content
