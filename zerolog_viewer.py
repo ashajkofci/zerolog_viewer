@@ -196,7 +196,8 @@ class LogTab:
             self.tree.tag_configure(level, foreground=color)
         
         # Create sidebar frame (initially hidden)
-        self.sidebar_frame = ttk.Frame(self.paned_window, width=300)
+        # Don't set width here - let the paned window manage it
+        self.sidebar_frame = ttk.Frame(self.paned_window)
         self.sidebar_visible = False
     
     def pick_date(self, field_type: str):
@@ -372,7 +373,8 @@ class LogTab:
         
         # Add sidebar to paned window if not already shown
         if not self.sidebar_visible:
-            self.paned_window.add(self.sidebar_frame, weight=0)
+            # Allow the sidebar to be resizable by user
+            self.paned_window.add(self.sidebar_frame, weight=1)
             self.sidebar_visible = True
         
         # Clear existing sidebar content
@@ -420,28 +422,52 @@ class LogTab:
                 label_text.config(state=tk.DISABLED)
                 label_text.pack(anchor='w')
                 
+                # Check if value is JSON and format it
+                formatted_value = self._format_value_if_json(value)
+                
                 # Use a Text widget for the value to make it selectable
                 value_text = tk.Text(frame, wrap=tk.WORD, relief=tk.FLAT,
                                     bg=default_bg)
-                value_text.insert('1.0', str(value))
+                value_text.insert('1.0', formatted_value)
                 value_text.config(state=tk.DISABLED)
-                # Calculate height based on content
-                # Count newlines first
-                value_str = str(value)
+                
+                # Calculate height dynamically based on content
+                value_str = formatted_value
                 newline_count = value_str.count('\n')
                 
-                # Estimate wrapped lines based on text length and assumed width
-                # Sidebar width is ~300px, with ~10px padding, leaves ~280px for text
-                # Default font is ~7px per character, so ~40 chars per line
-                chars_per_line = 40
-                total_chars = len(value_str)
-                estimated_wrapped_lines = (total_chars // chars_per_line) + (1 if total_chars % chars_per_line else 0)
+                # Estimate wrapped lines based on text length
+                # Use a more dynamic calculation that adjusts to actual content
+                lines_needed = newline_count + 1
                 
-                # Total lines is newlines + wrapped lines
-                total_lines = max(newline_count + 1, estimated_wrapped_lines)
+                # For single-line content, estimate wrapped lines
+                if newline_count == 0:
+                    # Estimate ~60 chars per line (adjusts with sidebar width)
+                    chars_per_line = 60
+                    total_chars = len(value_str)
+                    estimated_wrapped_lines = (total_chars // chars_per_line) + (1 if total_chars % chars_per_line else 0)
+                    lines_needed = max(1, estimated_wrapped_lines)
                 
-                value_text.config(height=min(total_lines, 10))
+                # Set height dynamically - no hard limit for better usability
+                value_text.config(height=lines_needed)
                 value_text.pack(anchor='w', fill=tk.X, padx=(10, 0))
+    
+    def _format_value_if_json(self, value) -> str:
+        """Format value as pretty JSON if it's valid JSON, otherwise return as string."""
+        value_str = str(value)
+        
+        # Try to parse as JSON
+        try:
+            # Only try to parse if it looks like JSON (starts with { or [)
+            stripped = value_str.strip()
+            if stripped.startswith('{') or stripped.startswith('['):
+                parsed = json.loads(value_str)
+                # Format with indentation
+                return json.dumps(parsed, indent=2, ensure_ascii=False)
+        except (json.JSONDecodeError, ValueError, TypeError):
+            # Not valid JSON, return as-is
+            pass
+        
+        return value_str
     
     def hide_sidebar(self):
         """Hide the metadata sidebar."""
