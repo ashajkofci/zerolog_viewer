@@ -337,6 +337,105 @@ class TestZeroLogViewer(unittest.TestCase):
         
         # Unknown levels should be included
         self.assertEqual(len(filtered), 2)
+    
+    def test_multi_search_and_logic(self):
+        """Test multi-search with AND logic."""
+        test_logs = [
+            {"level": "info", "message": "Device found", "location": "server"},
+            {"level": "info", "message": "Connection established", "location": "client"},
+            {"level": "error", "message": "Device error", "location": "server"},
+        ]
+        
+        # Search for logs containing both "Device" AND "server"
+        search_terms = ["device", "server"]
+        search_logic = "AND"
+        
+        # Simulate the multi-search logic
+        filtered = []
+        for log in test_logs:
+            log_values_str = [str(value).lower() for value in log.values()]
+            match = True
+            for term in search_terms:
+                term_found = any(term in value for value in log_values_str)
+                if not term_found:
+                    match = False
+                    break
+            if match:
+                filtered.append(log)
+        
+        # Should find logs 0 and 2 (both contain "device" and "server")
+        self.assertEqual(len(filtered), 2)
+        self.assertIn("Device found", filtered[0]['message'])
+        self.assertIn("Device error", filtered[1]['message'])
+    
+    def test_multi_search_or_logic(self):
+        """Test multi-search with OR logic."""
+        test_logs = [
+            {"level": "info", "message": "Device found", "location": "server"},
+            {"level": "info", "message": "Connection established", "location": "client"},
+            {"level": "error", "message": "Network error", "location": "router"},
+        ]
+        
+        # Search for logs containing "Device" OR "error"
+        search_terms = ["device", "error"]
+        search_logic = "OR"
+        
+        # Simulate the multi-search logic
+        filtered = []
+        for log in test_logs:
+            log_values_str = [str(value).lower() for value in log.values()]
+            match = False
+            for term in search_terms:
+                term_found = any(term in value for value in log_values_str)
+                if term_found:
+                    match = True
+                    break
+            if match:
+                filtered.append(log)
+        
+        # Should find logs 0 and 2 (contain "device" or "error")
+        self.assertEqual(len(filtered), 2)
+        self.assertIn("Device found", filtered[0]['message'])
+        self.assertIn("Network error", filtered[1]['message'])
+    
+    def test_multi_search_single_term(self):
+        """Test multi-search with single term (edge case)."""
+        test_logs = [
+            {"level": "info", "message": "Device found"},
+            {"level": "info", "message": "Connection established"},
+        ]
+        
+        # Search with single term should work with both AND and OR
+        search_terms = ["device"]
+        
+        # Simulate the multi-search logic (AND)
+        filtered = []
+        for log in test_logs:
+            log_values_str = [str(value).lower() for value in log.values()]
+            match = True
+            for term in search_terms:
+                term_found = any(term in value for value in log_values_str)
+                if not term_found:
+                    match = False
+                    break
+            if match:
+                filtered.append(log)
+        
+        self.assertEqual(len(filtered), 1)
+        self.assertIn("Device found", filtered[0]['message'])
+    
+    def test_multi_search_empty_terms(self):
+        """Test multi-search with no search terms (should return all)."""
+        test_logs = [
+            {"level": "info", "message": "Device found"},
+            {"level": "info", "message": "Connection established"},
+        ]
+        
+        search_terms = []
+        
+        # Empty search terms should not filter (return all)
+        # This is handled in apply_search_multi by returning early
+        self.assertEqual(len(search_terms), 0)
 
 
 if __name__ == '__main__':

@@ -852,6 +852,79 @@ class LogTab:
         else:
             self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries (level: {self.level_filter}+)")
     
+    def apply_search_multi(self, search_terms: List[str], search_logic: str = "AND"):
+        """Apply multiple search filters to logs with AND/OR logic, including level filter."""
+        # If no search terms, clear search
+        if not search_terms:
+            # Store the currently selected log before clearing search
+            selected_log_to_restore = self.selected_log
+            
+            # Apply level filter only
+            if self.level_filter == 'all':
+                self.filtered_logs = []
+            else:
+                self.filtered_logs = [log for log in self.logs if self._passes_level_filter(log)]
+            
+            self.display_logs()
+            
+            if self.level_filter == 'all':
+                self.app.status_var.set(f"Showing all {len(self.logs):,} log entries")
+            else:
+                self.app.status_var.set(f"Showing {len(self.filtered_logs):,} of {len(self.logs):,} log entries (level: {self.level_filter}+)")
+            
+            # Restore selection and scroll to it
+            if selected_log_to_restore:
+                self.scroll_to_log(selected_log_to_restore)
+            return
+        
+        # Convert all search terms to lowercase
+        search_terms = [term.lower() for term in search_terms]
+        
+        # Filter logs based on search terms and logic
+        self.filtered_logs = []
+        for log in self.logs:
+            # First check level filter
+            if not self._passes_level_filter(log):
+                continue
+            
+            # Convert all log values to lowercase strings
+            log_values_str = [str(value).lower() for value in log.values()]
+            
+            if search_logic == "AND":
+                # All search terms must be found in the log
+                match = True
+                for term in search_terms:
+                    term_found = any(term in value for value in log_values_str)
+                    if not term_found:
+                        match = False
+                        break
+                if match:
+                    self.filtered_logs.append(log)
+            else:  # OR logic
+                # At least one search term must be found in the log
+                match = False
+                for term in search_terms:
+                    term_found = any(term in value for value in log_values_str)
+                    if term_found:
+                        match = True
+                        break
+                if match:
+                    self.filtered_logs.append(log)
+        
+        self.display_logs()
+        
+        # Build status message
+        if len(search_terms) == 1:
+            search_desc = f"'{search_terms[0]}'"
+        else:
+            search_desc = f"{len(search_terms)} terms ({search_logic})"
+        
+        if self.level_filter == 'all':
+            self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries for {search_desc}")
+        else:
+            self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries for {search_desc} (level: {self.level_filter}+)")
+    
+    
     def apply_date_filter(self):
         """Apply date range filter to logs."""
         date_from_str = self.date_from_var.get().strip()
@@ -980,6 +1053,10 @@ class ZeroLogViewer:
         
         self.tabs: List[LogTab] = []
         
+        # Search fields management
+        self.search_fields = []  # List of StringVar objects for each search field
+        self.search_entries = []  # List of Entry widgets
+        
         self._create_ui()
         
         # Enable drag and drop if available
@@ -1023,17 +1100,36 @@ class ZeroLogViewer:
         # Open button
         ttk.Button(toolbar, text="Open File", command=self.open_file).pack(side=tk.LEFT, padx=2)
         
-        # Search frame
-        ttk.Label(toolbar, text="Search:").pack(side=tk.LEFT, padx=(10, 2))
-        self.search_var = tk.StringVar()
-        self.search_var.trace('w', lambda *args: self.debounced_search())
-        search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=30)
-        search_entry.pack(side=tk.LEFT, padx=2)
-        # Bind Enter key to apply search immediately (without debounce)
-        search_entry.bind('<Return>', lambda event: self.apply_search())
+        # Search container frame (will hold multiple search fields)
+        self.search_container = ttk.Frame(toolbar)
+        self.search_container.pack(side=tk.LEFT, fill=tk.X, expand=False, padx=(10, 0))
+        
+        # AND/OR logic selector
+        ttk.Label(self.search_container, text="Search:").pack(side=tk.LEFT, padx=(0, 2))
+        self.search_logic_var = tk.StringVar(value="AND")
+        search_logic_combo = ttk.Combobox(
+            self.search_container,
+            textvariable=self.search_logic_var,
+            values=["AND", "OR"],
+            width=5,
+            state="readonly"
+        )
+        search_logic_combo.pack(side=tk.LEFT, padx=2)
+        search_logic_combo.bind('<<ComboboxSelected>>', lambda event: self.apply_search())
+        
+        # Frame to hold search field entries
+        self.search_fields_frame = ttk.Frame(self.search_container)
+        self.search_fields_frame.pack(side=tk.LEFT, fill=tk.X, expand=False)
+        
+        # Add first search field by default
+        self.add_search_field()
+        
+        # Add/Remove buttons
+        ttk.Button(self.search_container, text="+", width=3, command=self.add_search_field).pack(side=tk.LEFT, padx=1)
+        ttk.Button(self.search_container, text="−", width=3, command=self.remove_search_field).pack(side=tk.LEFT, padx=1)
         
         # Clear search button
-        ttk.Button(toolbar, text="Clear", command=self.clear_search).pack(side=tk.LEFT, padx=2)
+        ttk.Button(self.search_container, text="Clear", command=self.clear_search).pack(side=tk.LEFT, padx=2)
         
         # Log level filter
         ttk.Label(toolbar, text="Level:").pack(side=tk.LEFT, padx=(10, 2))
@@ -1244,6 +1340,31 @@ class ZeroLogViewer:
             if not self.tabs:
                 self.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
     
+    def add_search_field(self):
+        """Add a new search field to the search container."""
+        search_var = tk.StringVar()
+        search_var.trace('w', lambda *args: self.debounced_search())
+        
+        search_entry = ttk.Entry(self.search_fields_frame, textvariable=search_var, width=20)
+        search_entry.pack(side=tk.LEFT, padx=2)
+        search_entry.bind('<Return>', lambda event: self.apply_search())
+        
+        self.search_fields.append(search_var)
+        self.search_entries.append(search_entry)
+    
+    def remove_search_field(self):
+        """Remove the last search field from the search container."""
+        if len(self.search_fields) > 1:  # Keep at least one search field
+            # Remove the last search field
+            search_var = self.search_fields.pop()
+            search_entry = self.search_entries.pop()
+            
+            # Destroy the widget
+            search_entry.destroy()
+            
+            # Apply search with remaining fields
+            self.apply_search()
+    
     def debounced_search(self):
         """Debounce search input to avoid too many updates."""
         if self.search_debounce_id:
@@ -1251,14 +1372,18 @@ class ZeroLogViewer:
         self.search_debounce_id = self.root.after(300, self.apply_search)  # 300ms debounce
     
     def apply_search(self):
-        """Apply search to current tab."""
+        """Apply search to current tab with multiple search terms."""
         current_tab = self.get_current_tab()
         if current_tab:
-            current_tab.apply_search(self.search_var.get())
+            # Collect all search terms from search fields
+            search_terms = [var.get().strip() for var in self.search_fields if var.get().strip()]
+            search_logic = self.search_logic_var.get()
+            current_tab.apply_search_multi(search_terms, search_logic)
     
     def clear_search(self):
-        """Clear the search filter."""
-        self.search_var.set('')
+        """Clear all search filters."""
+        for search_var in self.search_fields:
+            search_var.set('')
     
     def apply_level_filter(self):
         """Apply log level filter to current tab."""
