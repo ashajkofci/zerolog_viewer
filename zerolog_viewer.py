@@ -21,6 +21,41 @@ import os
 import threading
 import platform
 from pathlib import Path
+import subprocess
+import gzip
+
+
+def get_version_info() -> Dict[str, str]:
+    """Get version information from VERSION file and git."""
+    version_info = {
+        'version': 'Unknown',
+        'git_version': 'Unknown'
+    }
+    
+    # Try to read VERSION file
+    try:
+        version_file = Path(__file__).parent / 'VERSION'
+        if version_file.exists():
+            with open(version_file, 'r') as f:
+                version_info['version'] = f.read().strip()
+    except Exception:
+        pass
+    
+    # Try to get git version
+    try:
+        result = subprocess.run(
+            ['git', 'describe', '--tags', '--always', '--dirty'],
+            capture_output=True,
+            text=True,
+            timeout=1,
+            cwd=Path(__file__).parent
+        )
+        if result.returncode == 0:
+            version_info['git_version'] = result.stdout.strip()
+    except Exception:
+        pass
+    
+    return version_info
 
 
 class ConfigManager:
@@ -562,6 +597,21 @@ class LogTab:
                 value_text.insert('1.0', formatted_value)
                 value_text.config(state=tk.DISABLED)
                 
+                # Add right-click context menu for filtering
+                def show_context_menu(event, field_name=col, field_value=formatted_value):
+                    context_menu = tk.Menu(value_text, tearoff=0)
+                    context_menu.add_command(
+                        label="Filter by this field",
+                        command=lambda: self.filter_by_field(field_value)
+                    )
+                    try:
+                        context_menu.tk_popup(event.x_root, event.y_root)
+                    finally:
+                        context_menu.grab_release()
+                
+                value_text.bind('<Button-3>', show_context_menu)  # Right-click on Windows/Linux
+                value_text.bind('<Button-2>', show_context_menu)  # Right-click on macOS
+                
                 # Calculate initial height based on content
                 lines = formatted_value.count('\n') + 1
                 initial_height = min(max(1, lines), 15)
@@ -659,6 +709,24 @@ class LogTab:
             pass
         
         return value_str
+    
+    def filter_by_field(self, field_value: str):
+        """Add field value to search filters."""
+        # Get the first empty search field or add a new one if all are filled
+        search_field_added = False
+        for search_var in self.app.search_fields:
+            if not search_var.get().strip():
+                search_var.set(field_value)
+                search_field_added = True
+                break
+        
+        # If all fields are filled, add a new one
+        if not search_field_added:
+            self.app.add_search_field()
+            self.app.search_fields[-1].set(field_value)
+        
+        # Trigger search
+        self.app.apply_search()
     
     def hide_sidebar(self):
         """Hide the metadata sidebar."""
@@ -782,9 +850,10 @@ class LogTab:
     def apply_level_filter(self, level_filter: str):
         """Apply log level filter."""
         self.level_filter = level_filter
-        # Re-apply all filters including search
-        search_text = self.app.search_var.get() if hasattr(self.app, 'search_var') else ''
-        self.apply_search(search_text)
+        # Re-apply all filters including multi-search
+        search_terms = [var.get().strip() for var in self.app.search_fields if var.get().strip()] if hasattr(self.app, 'search_fields') else []
+        search_logic = self.app.search_logic_var.get() if hasattr(self.app, 'search_logic_var') else 'AND'
+        self.apply_search_multi(search_terms, search_logic)
     
     def _passes_level_filter(self, log: Dict[str, Any]) -> bool:
         """Check if a log entry passes the level filter."""
@@ -851,6 +920,84 @@ class LogTab:
             self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries")
         else:
             self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries (level: {self.level_filter}+)")
+    
+    def apply_search_multi(self, search_terms: List[str], search_logic: str = "AND"):
+        """Apply multiple search filters to logs with AND/OR logic, including level filter.
+        
+        Args:
+            search_terms (List[str]): List of search terms to filter by
+            search_logic (str): Logic operator 'AND' or 'OR' (default: 'AND')
+        """
+        # If no search terms, clear search
+        if not search_terms:
+            # Store the currently selected log before clearing search
+            selected_log_to_restore = self.selected_log
+            
+            # Apply level filter only
+            if self.level_filter == 'all':
+                self.filtered_logs = []
+            else:
+                self.filtered_logs = [log for log in self.logs if self._passes_level_filter(log)]
+            
+            self.display_logs()
+            
+            if self.level_filter == 'all':
+                self.app.status_var.set(f"Showing all {len(self.logs):,} log entries")
+            else:
+                self.app.status_var.set(f"Showing {len(self.filtered_logs):,} of {len(self.logs):,} log entries (level: {self.level_filter}+)")
+            
+            # Restore selection and scroll to it
+            if selected_log_to_restore:
+                self.scroll_to_log(selected_log_to_restore)
+            return
+        
+        # Convert all search terms to lowercase
+        search_terms = [term.lower() for term in search_terms]
+        
+        # Filter logs based on search terms and logic
+        self.filtered_logs = []
+        for log in self.logs:
+            # First check level filter
+            if not self._passes_level_filter(log):
+                continue
+            
+            # Convert all log values to lowercase strings
+            log_values_str = [str(value).lower() for value in log.values()]
+            
+            if search_logic == "AND":
+                # All search terms must be found in the log
+                match = True
+                for term in search_terms:
+                    term_found = any(term in value for value in log_values_str)
+                    if not term_found:
+                        match = False
+                        break
+                if match:
+                    self.filtered_logs.append(log)
+            else:  # OR logic
+                # At least one search term must be found in the log
+                match = False
+                for term in search_terms:
+                    term_found = any(term in value for value in log_values_str)
+                    if term_found:
+                        match = True
+                        break
+                if match:
+                    self.filtered_logs.append(log)
+        
+        self.display_logs()
+        
+        # Build status message
+        if len(search_terms) == 1:
+            search_desc = f"'{search_terms[0]}'"
+        else:
+            search_desc = f"{len(search_terms)} terms ({search_logic})"
+        
+        if self.level_filter == 'all':
+            self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries for {search_desc}")
+        else:
+            self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries for {search_desc} (level: {self.level_filter}+)")
+    
     
     def apply_date_filter(self):
         """Apply date range filter to logs."""
@@ -969,16 +1116,33 @@ class LogTab:
 class ZeroLogViewer:
     """Main application class for the ZeroLog Viewer."""
     
+    # Constants
+    MIN_SEARCH_FIELDS = 1  # Minimum number of search fields to maintain
+    
     def __init__(self, root):
         """Initialize the ZeroLog Viewer application."""
         self.root = root
-        self.root.title("ZeroLog Viewer")
+        
+        # Get version information
+        self.version_info = get_version_info()
+        
+        # Set title with version
+        title = "ZeroLog Viewer"
+        if self.version_info['version'] != 'Unknown':
+            title += f" v{self.version_info['version']}"
+        if self.version_info['git_version'] != 'Unknown':
+            title += f" ({self.version_info['git_version']})"
+        self.root.title(title)
         
         # Load configuration
         self.config = ConfigManager.load_config()
         self.root.geometry(self.config.get("window_geometry", "1200x700"))
         
         self.tabs: List[LogTab] = []
+        
+        # Search fields management
+        self.search_fields: List[tk.StringVar] = []  # List of StringVar objects for each search field
+        self.search_entries: List[ttk.Entry] = []  # List of Entry widgets
         
         self._create_ui()
         
@@ -1023,17 +1187,36 @@ class ZeroLogViewer:
         # Open button
         ttk.Button(toolbar, text="Open File", command=self.open_file).pack(side=tk.LEFT, padx=2)
         
-        # Search frame
-        ttk.Label(toolbar, text="Search:").pack(side=tk.LEFT, padx=(10, 2))
-        self.search_var = tk.StringVar()
-        self.search_var.trace('w', lambda *args: self.debounced_search())
-        search_entry = ttk.Entry(toolbar, textvariable=self.search_var, width=30)
-        search_entry.pack(side=tk.LEFT, padx=2)
-        # Bind Enter key to apply search immediately (without debounce)
-        search_entry.bind('<Return>', lambda event: self.apply_search())
+        # Search container frame (will hold multiple search fields)
+        self.search_container = ttk.Frame(toolbar)
+        self.search_container.pack(side=tk.LEFT, fill=tk.X, expand=False, padx=(10, 0))
+        
+        # AND/OR logic selector
+        ttk.Label(self.search_container, text="Search:").pack(side=tk.LEFT, padx=(0, 2))
+        self.search_logic_var = tk.StringVar(value="AND")
+        search_logic_combo = ttk.Combobox(
+            self.search_container,
+            textvariable=self.search_logic_var,
+            values=["AND", "OR"],
+            width=5,
+            state="readonly"
+        )
+        search_logic_combo.pack(side=tk.LEFT, padx=2)
+        search_logic_combo.bind('<<ComboboxSelected>>', lambda event: self.apply_search())
+        
+        # Frame to hold search field entries
+        self.search_fields_frame = ttk.Frame(self.search_container)
+        self.search_fields_frame.pack(side=tk.LEFT, fill=tk.X, expand=False)
+        
+        # Add first search field by default
+        self.add_search_field()
+        
+        # Add/Remove buttons
+        ttk.Button(self.search_container, text="+", width=3, command=self.add_search_field).pack(side=tk.LEFT, padx=1)
+        ttk.Button(self.search_container, text="-", width=3, command=self.remove_search_field).pack(side=tk.LEFT, padx=1)
         
         # Clear search button
-        ttk.Button(toolbar, text="Clear", command=self.clear_search).pack(side=tk.LEFT, padx=2)
+        ttk.Button(self.search_container, text="Clear", command=self.clear_search).pack(side=tk.LEFT, padx=2)
         
         # Log level filter
         ttk.Label(toolbar, text="Level:").pack(side=tk.LEFT, padx=(10, 2))
@@ -1244,6 +1427,31 @@ class ZeroLogViewer:
             if not self.tabs:
                 self.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
     
+    def add_search_field(self):
+        """Add a new search field to the search container."""
+        search_var = tk.StringVar()
+        search_var.trace('w', lambda *args: self.debounced_search())
+        
+        search_entry = ttk.Entry(self.search_fields_frame, textvariable=search_var, width=20)
+        search_entry.pack(side=tk.LEFT, padx=2)
+        search_entry.bind('<Return>', lambda event: self.apply_search())
+        
+        self.search_fields.append(search_var)
+        self.search_entries.append(search_entry)
+    
+    def remove_search_field(self):
+        """Remove the last search field from the search container."""
+        if len(self.search_fields) > self.MIN_SEARCH_FIELDS:
+            # Remove the last search field
+            search_var = self.search_fields.pop()
+            search_entry = self.search_entries.pop()
+            
+            # Destroy the widget
+            search_entry.destroy()
+            
+            # Apply search with remaining fields
+            self.apply_search()
+    
     def debounced_search(self):
         """Debounce search input to avoid too many updates."""
         if self.search_debounce_id:
@@ -1251,14 +1459,25 @@ class ZeroLogViewer:
         self.search_debounce_id = self.root.after(300, self.apply_search)  # 300ms debounce
     
     def apply_search(self):
-        """Apply search to current tab."""
+        """Apply search to current tab with multiple search terms."""
         current_tab = self.get_current_tab()
         if current_tab:
-            current_tab.apply_search(self.search_var.get())
+            # Collect all search terms from search fields
+            search_terms = [var.get().strip() for var in self.search_fields if var.get().strip()]
+            search_logic = self.search_logic_var.get()
+            current_tab.apply_search_multi(search_terms, search_logic)
     
     def clear_search(self):
-        """Clear the search filter."""
-        self.search_var.set('')
+        """Clear all search filters and remove extra search fields."""
+        # Clear all search field values
+        for search_var in self.search_fields:
+            search_var.set('')
+        
+        # Remove extra search fields, keeping only the first one
+        while len(self.search_fields) > self.MIN_SEARCH_FIELDS:
+            search_var = self.search_fields.pop()
+            search_entry = self.search_entries.pop()
+            search_entry.destroy()
     
     def apply_level_filter(self):
         """Apply log level filter to current tab."""
@@ -1511,6 +1730,14 @@ class ZeroLogViewer:
         ttk.Label(content_frame, text="ZeroLog Viewer", 
                  font=('TkDefaultFont', 16, 'bold')).pack(pady=(0, 10))
         
+        # Version information
+        version_text = f"Version {self.version_info['version']}"
+        if self.version_info['git_version'] != 'Unknown':
+            version_text += f"\nGit: {self.version_info['git_version']}"
+        ttk.Label(content_frame, text=version_text,
+                 font=('TkDefaultFont', 9),
+                 justify=tk.CENTER).pack(pady=(0, 5))
+        
         # Description
         ttk.Label(content_frame, 
                  text="A cross-platform GUI application for viewing\nand analyzing JSONL log files",
@@ -1562,10 +1789,11 @@ class ZeroLogViewer:
         filenames = filedialog.askopenfilenames(
             title="Open JSONL File(s)",
             filetypes=[
-                ("All supported", "*.jsonl *.json *.log"),
+                ("All supported", "*.jsonl *.json *.log *.log.gz *.gz"),
                 ("JSONL files", "*.jsonl"),
                 ("JSON files", "*.json"),
                 ("Log files", "*.log"),
+                ("Gzip files", "*.gz"),
                 ("All files", "*.*")
             ]
         )
@@ -1674,10 +1902,18 @@ class ZeroLogViewer:
             logs = []
             columns = set()
             
+            # Check if file is gzipped
+            is_gzipped = filename.endswith('.gz')
+            
             # Read and parse JSONL file with streaming for large files
-            with open(filename, 'r', encoding='utf-8') as f:
+            if is_gzipped:
+                file_handle = gzip.open(filename, 'rt', encoding='utf-8')
+            else:
+                file_handle = open(filename, 'r', encoding='utf-8')
+            
+            try:
                 line_num = 0
-                for line in f:
+                for line in file_handle:
                     line = line.strip()
                     if line:
                         try:
@@ -1696,6 +1932,8 @@ class ZeroLogViewer:
                                 ))
                         except json.JSONDecodeError as e:
                             print(f"Warning: Skipping invalid JSON on line {line_num}: {e}")
+            finally:
+                file_handle.close()
             
             if not logs:
                 self.root.after(0, lambda: messagebox.showwarning("No Data", "No valid log entries found in the file."))
@@ -1787,10 +2025,18 @@ class ZeroLogViewer:
                     f"Loading file {idx + 1}/{len(filenames)}: {os.path.basename(f)}..."
                 ))
                 
+                # Check if file is gzipped
+                is_gzipped = filename.endswith('.gz')
+                
                 # Read and parse JSONL file
-                with open(filename, 'r', encoding='utf-8') as f:
+                if is_gzipped:
+                    file_handle = gzip.open(filename, 'rt', encoding='utf-8')
+                else:
+                    file_handle = open(filename, 'r', encoding='utf-8')
+                
+                try:
                     line_num = 0
-                    for line in f:
+                    for line in file_handle:
                         line = line.strip()
                         if line:
                             try:
@@ -1809,6 +2055,8 @@ class ZeroLogViewer:
                                     ))
                             except json.JSONDecodeError as e:
                                 print(f"Warning: Skipping invalid JSON in {filename} on line {line_num}: {e}")
+                finally:
+                    file_handle.close()
             
             if not all_logs:
                 self.root.after(0, lambda: messagebox.showwarning("No Data", "No valid log entries found in the files."))
