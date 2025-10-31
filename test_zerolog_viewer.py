@@ -436,6 +436,177 @@ class TestZeroLogViewer(unittest.TestCase):
         # Empty search terms should not filter (return all)
         # This is handled in apply_search_multi by returning early
         self.assertEqual(len(search_terms), 0)
+    
+    def test_export_to_jsonl(self):
+        """Test export to JSONL format."""
+        test_logs = [
+            {"level": "info", "time": "2025-10-20T17:19:16Z", "message": "Test log 1"},
+            {"level": "error", "time": "2025-10-20T17:19:17Z", "message": "Test log 2"},
+        ]
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.jsonl', delete=False) as f:
+            temp_file = f.name
+        
+        try:
+            # Write logs to JSONL
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                for log in test_logs:
+                    f.write(json.dumps(log, ensure_ascii=False) + '\n')
+            
+            # Read back and verify
+            with open(temp_file, 'r', encoding='utf-8') as f:
+                lines = f.readlines()
+            
+            self.assertEqual(len(lines), 2)
+            
+            # Parse and verify first log
+            log1 = json.loads(lines[0])
+            self.assertEqual(log1['level'], 'info')
+            self.assertEqual(log1['message'], 'Test log 1')
+            
+            # Parse and verify second log
+            log2 = json.loads(lines[1])
+            self.assertEqual(log2['level'], 'error')
+            self.assertEqual(log2['message'], 'Test log 2')
+            
+        finally:
+            os.unlink(temp_file)
+    
+    def test_export_to_json(self):
+        """Test export to JSON format (array)."""
+        test_logs = [
+            {"level": "info", "time": "2025-10-20T17:19:16Z", "message": "Test log 1"},
+            {"level": "error", "time": "2025-10-20T17:19:17Z", "message": "Test log 2"},
+        ]
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.json', delete=False) as f:
+            temp_file = f.name
+        
+        try:
+            # Write logs to JSON
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                json.dump(test_logs, f, indent=2, ensure_ascii=False)
+            
+            # Read back and verify
+            with open(temp_file, 'r', encoding='utf-8') as f:
+                loaded_logs = json.load(f)
+            
+            self.assertEqual(len(loaded_logs), 2)
+            self.assertEqual(loaded_logs[0]['level'], 'info')
+            self.assertEqual(loaded_logs[1]['level'], 'error')
+            
+        finally:
+            os.unlink(temp_file)
+    
+    def test_export_to_csv(self):
+        """Test export to CSV format."""
+        import csv
+        
+        test_logs = [
+            {"level": "info", "time": "2025-10-20T17:19:16Z", "message": "Test log 1"},
+            {"level": "error", "time": "2025-10-20T17:19:17Z", "message": "Test log 2"},
+        ]
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+            temp_file = f.name
+        
+        try:
+            # Get all columns
+            all_columns = set()
+            for log in test_logs:
+                all_columns.update(log.keys())
+            
+            # Sort columns with priority
+            priority_columns = ['time', 'level', 'message']
+            sorted_columns = []
+            for col in priority_columns:
+                if col in all_columns:
+                    sorted_columns.append(col)
+                    all_columns.discard(col)
+            sorted_columns.extend(sorted(all_columns))
+            
+            # Write CSV
+            with open(temp_file, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=sorted_columns, extrasaction='ignore')
+                writer.writeheader()
+                for log in test_logs:
+                    writer.writerow(log)
+            
+            # Read back and verify
+            with open(temp_file, 'r', encoding='utf-8', newline='') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+            
+            self.assertEqual(len(rows), 2)
+            self.assertEqual(rows[0]['level'], 'info')
+            self.assertEqual(rows[0]['message'], 'Test log 1')
+            self.assertEqual(rows[1]['level'], 'error')
+            self.assertEqual(rows[1]['message'], 'Test log 2')
+            
+        finally:
+            os.unlink(temp_file)
+    
+    def test_export_csv_with_nested_objects(self):
+        """Test that nested objects are converted to JSON strings in CSV."""
+        import csv
+        
+        test_logs = [
+            {
+                "level": "info",
+                "time": "2025-10-20T17:19:16Z",
+                "message": "Test log",
+                "metadata": {"key1": "value1", "key2": "value2"}
+            }
+        ]
+        
+        with tempfile.NamedTemporaryFile(mode='w', suffix='.csv', delete=False) as f:
+            temp_file = f.name
+        
+        try:
+            # Get all columns
+            all_columns = set()
+            for log in test_logs:
+                all_columns.update(log.keys())
+            
+            # Sort columns
+            priority_columns = ['time', 'level', 'message']
+            sorted_columns = []
+            for col in priority_columns:
+                if col in all_columns:
+                    sorted_columns.append(col)
+                    all_columns.discard(col)
+            sorted_columns.extend(sorted(all_columns))
+            
+            # Write CSV with nested object handling
+            with open(temp_file, 'w', encoding='utf-8', newline='') as f:
+                writer = csv.DictWriter(f, fieldnames=sorted_columns, extrasaction='ignore')
+                writer.writeheader()
+                
+                for log in test_logs:
+                    row = {}
+                    for col in sorted_columns:
+                        value = log.get(col, '')
+                        if isinstance(value, (dict, list)):
+                            row[col] = json.dumps(value, ensure_ascii=False)
+                        else:
+                            row[col] = value
+                    writer.writerow(row)
+            
+            # Read back and verify
+            with open(temp_file, 'r', encoding='utf-8', newline='') as f:
+                reader = csv.DictReader(f)
+                rows = list(reader)
+            
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]['level'], 'info')
+            
+            # Verify nested object was converted to JSON string
+            metadata = json.loads(rows[0]['metadata'])
+            self.assertEqual(metadata['key1'], 'value1')
+            self.assertEqual(metadata['key2'], 'value2')
+            
+        finally:
+            os.unlink(temp_file)
 
 
 if __name__ == '__main__':
