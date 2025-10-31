@@ -782,9 +782,10 @@ class LogTab:
     def apply_level_filter(self, level_filter: str):
         """Apply log level filter."""
         self.level_filter = level_filter
-        # Re-apply all filters including search
-        search_text = self.app.search_var.get() if hasattr(self.app, 'search_var') else ''
-        self.apply_search(search_text)
+        # Re-apply all filters including multi-search
+        search_terms = [var.get().strip() for var in self.app.search_fields if var.get().strip()] if hasattr(self.app, 'search_fields') else []
+        search_logic = self.app.search_logic_var.get() if hasattr(self.app, 'search_logic_var') else 'AND'
+        self.apply_search_multi(search_terms, search_logic)
     
     def _passes_level_filter(self, log: Dict[str, Any]) -> bool:
         """Check if a log entry passes the level filter."""
