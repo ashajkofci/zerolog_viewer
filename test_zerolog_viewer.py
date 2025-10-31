@@ -3,6 +3,7 @@
 Unit tests for ZeroLog Viewer.
 """
 
+import csv
 import json
 import os
 import tempfile
@@ -500,8 +501,6 @@ class TestZeroLogViewer(unittest.TestCase):
     
     def test_export_to_csv(self):
         """Test export to CSV format."""
-        import csv
-        
         test_logs = [
             {"level": "info", "time": "2025-10-20T17:19:16Z", "message": "Test log 1"},
             {"level": "error", "time": "2025-10-20T17:19:17Z", "message": "Test log 2"},
@@ -548,8 +547,6 @@ class TestZeroLogViewer(unittest.TestCase):
     
     def test_export_csv_with_nested_objects(self):
         """Test that nested objects are converted to JSON strings in CSV."""
-        import csv
-        
         test_logs = [
             {
                 "level": "info",
