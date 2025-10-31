@@ -23,6 +23,7 @@ import platform
 from pathlib import Path
 import subprocess
 import gzip
+import csv
 
 
 def get_version_info() -> Dict[str, str]:
@@ -239,6 +240,10 @@ class LogTab:
         self.tree.bind('<Next>', self.on_key_navigation)   # Page Down
         self.tree.bind('<Home>', self.on_key_navigation)
         self.tree.bind('<End>', self.on_key_navigation)
+        
+        # Bind right-click context menu
+        self.tree.bind('<Button-3>', self.show_context_menu)  # Right-click on Windows/Linux
+        self.tree.bind('<Button-2>', self.show_context_menu)  # Right-click on macOS (Control+Click)
         
         # Configure tags for level colors
         for level, color in self.level_colors.items():
@@ -1109,6 +1114,160 @@ class LogTab:
         except Exception as e:
             # If we can't scroll to the log, just continue without error
             print(f"Warning: Could not scroll to log: {e}")
+    
+    def show_context_menu(self, event):
+        """Show context menu on right-click in the treeview."""
+        # Select the item under cursor if not already selected
+        item = self.tree.identify_row(event.y)
+        if item and item not in self.tree.selection():
+            self.tree.selection_set(item)
+        
+        # Create context menu
+        context_menu = tk.Menu(self.tree, tearoff=0)
+        
+        # Get selected items
+        selected_items = self.tree.selection()
+        
+        if selected_items:
+            context_menu.add_command(
+                label=f"Export Selected ({len(selected_items)} entries)",
+                command=self.export_selected
+            )
+        
+        context_menu.add_command(
+            label="Export All Displayed Results",
+            command=self.export_displayed
+        )
+        
+        try:
+            context_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            context_menu.grab_release()
+    
+    def export_selected(self):
+        """Export selected log entries."""
+        selected_items = self.tree.selection()
+        if not selected_items:
+            messagebox.showinfo("No Selection", "No log entries are selected.")
+            return
+        
+        # Get the logs corresponding to selected items
+        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
+        selected_logs = []
+        
+        for item in selected_items:
+            item_index = self.tree.index(item)
+            if item_index < len(logs_to_display):
+                selected_logs.append(logs_to_display[item_index])
+        
+        if not selected_logs:
+            messagebox.showinfo("No Data", "No log entries to export.")
+            return
+        
+        self._export_logs(selected_logs, "selected")
+    
+    def export_displayed(self):
+        """Export all displayed/filtered log entries."""
+        logs_to_export = self.filtered_logs if self.filtered_logs else self.logs
+        
+        if not logs_to_export:
+            messagebox.showinfo("No Data", "No log entries to export.")
+            return
+        
+        self._export_logs(logs_to_export, "displayed")
+    
+    def _export_logs(self, logs: List[Dict[str, Any]], export_type: str):
+        """Export logs to a file with format selection.
+        
+        Args:
+            logs: List of log entries to export
+            export_type: Type of export ("selected" or "displayed")
+        """
+        if not logs:
+            return
+        
+        # Ask user for file format and location
+        file_types = [
+            ("JSONL files", "*.jsonl"),
+            ("CSV files", "*.csv"),
+            ("JSON files", "*.json"),
+            ("All files", "*.*")
+        ]
+        
+        filename = filedialog.asksaveasfilename(
+            title=f"Export {export_type} log entries",
+            defaultextension=".jsonl",
+            filetypes=file_types
+        )
+        
+        if not filename:
+            return  # User cancelled
+        
+        try:
+            # Determine format from file extension
+            file_ext = os.path.splitext(filename)[1].lower()
+            
+            if file_ext == '.csv':
+                self._export_to_csv(logs, filename)
+            elif file_ext == '.json':
+                self._export_to_json(logs, filename)
+            else:  # Default to JSONL
+                self._export_to_jsonl(logs, filename)
+            
+            messagebox.showinfo(
+                "Export Successful",
+                f"Exported {len(logs):,} log entries to:\n{filename}"
+            )
+            self.app.status_var.set(f"Exported {len(logs):,} entries to {os.path.basename(filename)}")
+            
+        except Exception as e:
+            messagebox.showerror("Export Error", f"Failed to export logs: {str(e)}")
+    
+    def _export_to_jsonl(self, logs: List[Dict[str, Any]], filename: str):
+        """Export logs to JSONL format."""
+        with open(filename, 'w', encoding='utf-8') as f:
+            for log in logs:
+                f.write(json.dumps(log, ensure_ascii=False) + '\n')
+    
+    def _export_to_json(self, logs: List[Dict[str, Any]], filename: str):
+        """Export logs to JSON format (array of objects)."""
+        with open(filename, 'w', encoding='utf-8') as f:
+            json.dump(logs, f, indent=2, ensure_ascii=False)
+    
+    def _export_to_csv(self, logs: List[Dict[str, Any]], filename: str):
+        """Export logs to CSV format."""
+        if not logs:
+            return
+        
+        # Get all unique columns from all logs
+        all_columns = set()
+        for log in logs:
+            all_columns.update(log.keys())
+        
+        # Sort columns with priority (time, level, message first)
+        priority_columns = ['time', 'level', 'message']
+        sorted_columns = []
+        for col in priority_columns:
+            if col in all_columns:
+                sorted_columns.append(col)
+                all_columns.discard(col)
+        sorted_columns.extend(sorted(all_columns))
+        
+        # Write CSV
+        with open(filename, 'w', encoding='utf-8', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=sorted_columns, extrasaction='ignore')
+            writer.writeheader()
+            
+            for log in logs:
+                # Convert nested objects to JSON strings for CSV
+                row = {}
+                for col in sorted_columns:
+                    value = log.get(col, '')
+                    if isinstance(value, (dict, list)):
+                        row[col] = json.dumps(value, ensure_ascii=False)
+                    else:
+                        row[col] = value
+                writer.writerow(row)
 
 
 
@@ -1164,6 +1323,8 @@ class ZeroLogViewer:
         menubar.add_cascade(label="File", menu=file_menu)
         file_menu.add_command(label="Open JSONL File", command=self.open_file)
         file_menu.add_command(label="Close Current Tab", command=self.close_current_tab)
+        file_menu.add_separator()
+        file_menu.add_command(label="Export Displayed Results", command=self.export_displayed_results)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         
@@ -2101,6 +2262,15 @@ class ZeroLogViewer:
         """Finalize merged load on the main thread."""
         tab.display_logs()
         self.status_var.set(f"Loaded and merged {len(tab.logs):,} log entries from {file_count} files")
+    
+    def export_displayed_results(self):
+        """Export displayed results from the current tab."""
+        current_tab = self.get_current_tab()
+        if not current_tab:
+            messagebox.showinfo("No File Open", "Please open a file first.")
+            return
+        
+        current_tab.export_displayed()
     
 def main():
     """Main entry point for the application."""
