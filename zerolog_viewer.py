@@ -853,7 +853,12 @@ class LogTab:
             self.app.status_var.set(f"Found {len(self.filtered_logs):,} of {len(self.logs):,} log entries (level: {self.level_filter}+)")
     
     def apply_search_multi(self, search_terms: List[str], search_logic: str = "AND"):
-        """Apply multiple search filters to logs with AND/OR logic, including level filter."""
+        """Apply multiple search filters to logs with AND/OR logic, including level filter.
+        
+        Args:
+            search_terms (List[str]): List of search terms to filter by
+            search_logic (str): Logic operator 'AND' or 'OR' (default: 'AND')
+        """
         # If no search terms, clear search
         if not search_terms:
             # Store the currently selected log before clearing search
@@ -1042,6 +1047,9 @@ class LogTab:
 class ZeroLogViewer:
     """Main application class for the ZeroLog Viewer."""
     
+    # Constants
+    MIN_SEARCH_FIELDS = 1  # Minimum number of search fields to maintain
+    
     def __init__(self, root):
         """Initialize the ZeroLog Viewer application."""
         self.root = root
@@ -1054,8 +1062,8 @@ class ZeroLogViewer:
         self.tabs: List[LogTab] = []
         
         # Search fields management
-        self.search_fields = []  # List of StringVar objects for each search field
-        self.search_entries = []  # List of Entry widgets
+        self.search_fields: List[tk.StringVar] = []  # List of StringVar objects for each search field
+        self.search_entries: List[ttk.Entry] = []  # List of Entry widgets
         
         self._create_ui()
         
@@ -1354,7 +1362,7 @@ class ZeroLogViewer:
     
     def remove_search_field(self):
         """Remove the last search field from the search container."""
-        if len(self.search_fields) > 1:  # Keep at least one search field
+        if len(self.search_fields) > self.MIN_SEARCH_FIELDS:
             # Remove the last search field
             search_var = self.search_fields.pop()
             search_entry = self.search_entries.pop()
