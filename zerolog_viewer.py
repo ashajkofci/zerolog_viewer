@@ -27,9 +27,15 @@ import sys
 
 
 def get_resource_path(relative_path: str) -> Path:
-    """Get absolute path to resource, works for dev and for PyInstaller."""
+    """Get absolute path to resource, works for dev and for PyInstaller.
+    
+    When running as a PyInstaller executable, resources are extracted to a
+    temporary directory and the path is stored in sys._MEIPASS.
+    In development, resources are in the same directory as this file.
+    """
     try:
-        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        # PyInstaller creates a temp folder and stores the path in _MEIPASS
+        # This is where bundled data files are extracted at runtime
         base_path = Path(sys._MEIPASS)
     except AttributeError:
         # Running in normal Python environment
@@ -74,7 +80,14 @@ def get_version_info() -> Dict[str, str]:
 
 
 def get_license_text() -> str:
-    """Get the license text from LICENSE file."""
+    """Get the license text from LICENSE file.
+    
+    Returns the full text of the license file if available,
+    otherwise returns a generic fallback message.
+    """
+    # License type constant for fallback
+    LICENSE_TYPE = "BSD 3-Clause License"
+    
     try:
         license_file = get_resource_path('LICENSE')
         if license_file.exists():
@@ -83,7 +96,7 @@ def get_license_text() -> str:
     except Exception as e:
         print(f"Warning: Could not read LICENSE file: {e}")
     
-    return "BSD 3-Clause License\n\nLicense file not found. Please visit the project repository for license information."
+    return f"{LICENSE_TYPE}\n\nLicense file not found. Please visit the project repository for license information."
 
 
 class ConfigManager:
