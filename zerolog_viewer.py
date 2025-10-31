@@ -1126,7 +1126,7 @@ class ZeroLogViewer:
         
         # Add/Remove buttons
         ttk.Button(self.search_container, text="+", width=3, command=self.add_search_field).pack(side=tk.LEFT, padx=1)
-        ttk.Button(self.search_container, text="−", width=3, command=self.remove_search_field).pack(side=tk.LEFT, padx=1)
+        ttk.Button(self.search_container, text="-", width=3, command=self.remove_search_field).pack(side=tk.LEFT, padx=1)
         
         # Clear search button
         ttk.Button(self.search_container, text="Clear", command=self.clear_search).pack(side=tk.LEFT, padx=2)
