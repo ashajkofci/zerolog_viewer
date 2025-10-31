@@ -23,6 +23,19 @@ import platform
 from pathlib import Path
 import subprocess
 import gzip
+import sys
+
+
+def get_resource_path(relative_path: str) -> Path:
+    """Get absolute path to resource, works for dev and for PyInstaller."""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = Path(sys._MEIPASS)
+    except AttributeError:
+        # Running in normal Python environment
+        base_path = Path(__file__).parent
+    
+    return base_path / relative_path
 
 
 def get_version_info() -> Dict[str, str]:
@@ -32,30 +45,45 @@ def get_version_info() -> Dict[str, str]:
         'git_version': 'Unknown'
     }
     
-    # Try to read VERSION file
+    # Try to read VERSION file from bundled resources or source directory
     try:
-        version_file = Path(__file__).parent / 'VERSION'
+        version_file = get_resource_path('VERSION')
         if version_file.exists():
             with open(version_file, 'r') as f:
                 version_info['version'] = f.read().strip()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"Warning: Could not read VERSION file: {e}")
     
-    # Try to get git version
+    # Try to get git version (only works in development, not in packaged app)
     try:
-        result = subprocess.run(
-            ['git', 'describe', '--tags', '--always', '--dirty'],
-            capture_output=True,
-            text=True,
-            timeout=1,
-            cwd=Path(__file__).parent
-        )
-        if result.returncode == 0:
-            version_info['git_version'] = result.stdout.strip()
+        # Only try git if we're not in a PyInstaller bundle
+        if not hasattr(sys, '_MEIPASS'):
+            result = subprocess.run(
+                ['git', 'describe', '--tags', '--always', '--dirty'],
+                capture_output=True,
+                text=True,
+                timeout=1,
+                cwd=Path(__file__).parent
+            )
+            if result.returncode == 0:
+                version_info['git_version'] = result.stdout.strip()
     except Exception:
         pass
     
     return version_info
+
+
+def get_license_text() -> str:
+    """Get the license text from LICENSE file."""
+    try:
+        license_file = get_resource_path('LICENSE')
+        if license_file.exists():
+            with open(license_file, 'r') as f:
+                return f.read()
+    except Exception as e:
+        print(f"Warning: Could not read LICENSE file: {e}")
+    
+    return "BSD 3-Clause License\n\nLicense file not found. Please visit the project repository for license information."
 
 
 class ConfigManager:
@@ -1717,7 +1745,7 @@ class ZeroLogViewer:
         # Center dialog over parent window
         dialog.update_idletasks()
         width = 450
-        height = 300
+        height = 350
         x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (width // 2)
         y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (height // 2)
         dialog.geometry(f"{width}x{height}+{x}+{y}")
@@ -1766,8 +1794,58 @@ class ZeroLogViewer:
         # License
         ttk.Label(content_frame, text="License:", 
                  font=('TkDefaultFont', 9, 'bold')).pack(anchor='w')
+        
+        # License info with view button
+        license_frame = ttk.Frame(content_frame)
+        license_frame.pack(anchor='w', fill=tk.X, pady=(0, 20))
+        
+        ttk.Label(license_frame, text="BSD 3-Clause License", 
+                 font=('TkDefaultFont', 9)).pack(side=tk.LEFT)
+        ttk.Button(license_frame, text="View License", 
+                  command=self.show_license).pack(side=tk.LEFT, padx=(10, 0))
+        
+        # Close button
+        ttk.Button(content_frame, text="Close", command=dialog.destroy).pack(pady=(10, 0))
+    
+    def show_license(self):
+        """Show the full license text in a new window."""
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("License - ZeroLog Viewer")
+        dialog.transient(self.root)
+        
+        # Center dialog over parent window
+        dialog.update_idletasks()
+        width = 600
+        height = 500
+        x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (width // 2)
+        y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (height // 2)
+        dialog.geometry(f"{width}x{height}+{x}+{y}")
+        
+        # Content frame
+        content_frame = ttk.Frame(dialog, padding="10")
+        content_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # Title
         ttk.Label(content_frame, text="BSD 3-Clause License", 
-                 font=('TkDefaultFont', 9)).pack(anchor='w', pady=(0, 20))
+                 font=('TkDefaultFont', 12, 'bold')).pack(pady=(0, 10))
+        
+        # Text widget with scrollbar for license
+        text_frame = ttk.Frame(content_frame)
+        text_frame.pack(fill=tk.BOTH, expand=True)
+        
+        scrollbar = ttk.Scrollbar(text_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        license_text = tk.Text(text_frame, wrap=tk.WORD, yscrollcommand=scrollbar.set,
+                              font=('TkFixedFont', 9), padx=10, pady=10)
+        license_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=license_text.yview)
+        
+        # Insert license text
+        license_content = get_license_text()
+        license_text.insert('1.0', license_content)
+        license_text.config(state=tk.DISABLED)
         
         # Close button
         ttk.Button(content_frame, text="Close", command=dialog.destroy).pack(pady=(10, 0))
