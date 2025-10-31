@@ -138,7 +138,7 @@ jobs:
     
     - name: Build executable with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --name zerolog_viewer zerolog_viewer.py
+        pyinstaller zerolog_viewer.spec
     
     - name: Get version
       id: get_version
@@ -194,7 +194,7 @@ jobs:
     
     - name: Build executable with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --name zerolog_viewer zerolog_viewer.py
+        pyinstaller zerolog_viewer.spec
     
     - name: Get version
       id: get_version
@@ -277,7 +277,7 @@ jobs:
     
     - name: Build executable with PyInstaller
       run: |
-        pyinstaller --onefile --windowed --name "ZeroLog Viewer" zerolog_viewer.py
+        pyinstaller zerolog_viewer.spec
     
     - name: Get version
       id: get_version
@@ -290,14 +290,21 @@ jobs:
     
     - name: Create app bundle
       run: |
-        mkdir -p "ZeroLog Viewer.app/Contents/MacOS"
-        mkdir -p "ZeroLog Viewer.app/Contents/Resources"
-        
-        # Copy binary
-        cp "dist/ZeroLog Viewer" "ZeroLog Viewer.app/Contents/MacOS/"
-        
-        # Create Info.plist
-        cat > "ZeroLog Viewer.app/Contents/Info.plist" << EOF
+        # PyInstaller spec file creates the bundle, but we need to update Info.plist
+        if [ -d "dist/ZeroLog Viewer.app" ]; then
+          # Update version in Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.get_version.outputs.version }}" "dist/ZeroLog Viewer.app/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.get_version.outputs.version }}" "dist/ZeroLog Viewer.app/Contents/Info.plist"
+        else
+          # Fallback: create app bundle manually
+          mkdir -p "ZeroLog Viewer.app/Contents/MacOS"
+          mkdir -p "ZeroLog Viewer.app/Contents/Resources"
+          
+          # Copy binary
+          cp "dist/zerolog_viewer" "ZeroLog Viewer.app/Contents/MacOS/ZeroLog Viewer"
+          
+          # Create Info.plist
+          cat > "ZeroLog Viewer.app/Contents/Info.plist" << EOF
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
         <plist version="1.0">
@@ -323,6 +330,8 @@ jobs:
         </dict>
         </plist>
         EOF
+          mv "ZeroLog Viewer.app" dist/
+        fi
     
     - name: Create DMG
       run: |
@@ -334,7 +343,7 @@ jobs:
           --icon-size 100 \
           --app-drop-link 425 120 \
           "zerolog-viewer-${VERSION}.dmg" \
-          "ZeroLog Viewer.app"
+          "dist/ZeroLog Viewer.app"
     
     - name: Upload DMG artifact
       uses: actions/upload-artifact@v4

@@ -21,7 +21,8 @@ wheels/
 *.egg
 
 # PyInstaller
-*.spec
+# We need zerolog_viewer.spec, but not auto-generated .spec files
+# *.spec
 
 # Virtual environments
 venv/
