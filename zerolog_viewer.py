@@ -21,6 +21,41 @@ import os
 import threading
 import platform
 from pathlib import Path
+import subprocess
+import gzip
+
+
+def get_version_info() -> Dict[str, str]:
+    """Get version information from VERSION file and git."""
+    version_info = {
+        'version': 'Unknown',
+        'git_version': 'Unknown'
+    }
+    
+    # Try to read VERSION file
+    try:
+        version_file = Path(__file__).parent / 'VERSION'
+        if version_file.exists():
+            with open(version_file, 'r') as f:
+                version_info['version'] = f.read().strip()
+    except Exception:
+        pass
+    
+    # Try to get git version
+    try:
+        result = subprocess.run(
+            ['git', 'describe', '--tags', '--always', '--dirty'],
+            capture_output=True,
+            text=True,
+            timeout=1,
+            cwd=Path(__file__).parent
+        )
+        if result.returncode == 0:
+            version_info['git_version'] = result.stdout.strip()
+    except Exception:
+        pass
+    
+    return version_info
 
 
 class ConfigManager:
@@ -562,6 +597,21 @@ class LogTab:
                 value_text.insert('1.0', formatted_value)
                 value_text.config(state=tk.DISABLED)
                 
+                # Add right-click context menu for filtering
+                def show_context_menu(event, field_name=col, field_value=formatted_value):
+                    context_menu = tk.Menu(value_text, tearoff=0)
+                    context_menu.add_command(
+                        label="Filter by this field",
+                        command=lambda: self.filter_by_field(field_value)
+                    )
+                    try:
+                        context_menu.tk_popup(event.x_root, event.y_root)
+                    finally:
+                        context_menu.grab_release()
+                
+                value_text.bind('<Button-3>', show_context_menu)  # Right-click on Windows/Linux
+                value_text.bind('<Button-2>', show_context_menu)  # Right-click on macOS
+                
                 # Calculate initial height based on content
                 lines = formatted_value.count('\n') + 1
                 initial_height = min(max(1, lines), 15)
@@ -659,6 +709,24 @@ class LogTab:
             pass
         
         return value_str
+    
+    def filter_by_field(self, field_value: str):
+        """Add field value to search filters."""
+        # Get the first empty search field or add a new one if all are filled
+        search_field_added = False
+        for search_var in self.app.search_fields:
+            if not search_var.get().strip():
+                search_var.set(field_value)
+                search_field_added = True
+                break
+        
+        # If all fields are filled, add a new one
+        if not search_field_added:
+            self.app.add_search_field()
+            self.app.search_fields[-1].set(field_value)
+        
+        # Trigger search
+        self.app.apply_search()
     
     def hide_sidebar(self):
         """Hide the metadata sidebar."""
@@ -1054,7 +1122,17 @@ class ZeroLogViewer:
     def __init__(self, root):
         """Initialize the ZeroLog Viewer application."""
         self.root = root
-        self.root.title("ZeroLog Viewer")
+        
+        # Get version information
+        self.version_info = get_version_info()
+        
+        # Set title with version
+        title = "ZeroLog Viewer"
+        if self.version_info['version'] != 'Unknown':
+            title += f" v{self.version_info['version']}"
+        if self.version_info['git_version'] != 'Unknown':
+            title += f" ({self.version_info['git_version']})"
+        self.root.title(title)
         
         # Load configuration
         self.config = ConfigManager.load_config()
@@ -1390,9 +1468,16 @@ class ZeroLogViewer:
             current_tab.apply_search_multi(search_terms, search_logic)
     
     def clear_search(self):
-        """Clear all search filters."""
+        """Clear all search filters and remove extra search fields."""
+        # Clear all search field values
         for search_var in self.search_fields:
             search_var.set('')
+        
+        # Remove extra search fields, keeping only the first one
+        while len(self.search_fields) > self.MIN_SEARCH_FIELDS:
+            search_var = self.search_fields.pop()
+            search_entry = self.search_entries.pop()
+            search_entry.destroy()
     
     def apply_level_filter(self):
         """Apply log level filter to current tab."""
@@ -1645,6 +1730,14 @@ class ZeroLogViewer:
         ttk.Label(content_frame, text="ZeroLog Viewer", 
                  font=('TkDefaultFont', 16, 'bold')).pack(pady=(0, 10))
         
+        # Version information
+        version_text = f"Version {self.version_info['version']}"
+        if self.version_info['git_version'] != 'Unknown':
+            version_text += f"\nGit: {self.version_info['git_version']}"
+        ttk.Label(content_frame, text=version_text,
+                 font=('TkDefaultFont', 9),
+                 justify=tk.CENTER).pack(pady=(0, 5))
+        
         # Description
         ttk.Label(content_frame, 
                  text="A cross-platform GUI application for viewing\nand analyzing JSONL log files",
@@ -1696,10 +1789,11 @@ class ZeroLogViewer:
         filenames = filedialog.askopenfilenames(
             title="Open JSONL File(s)",
             filetypes=[
-                ("All supported", "*.jsonl *.json *.log"),
+                ("All supported", "*.jsonl *.json *.log *.log.gz *.gz"),
                 ("JSONL files", "*.jsonl"),
                 ("JSON files", "*.json"),
                 ("Log files", "*.log"),
+                ("Gzip files", "*.gz"),
                 ("All files", "*.*")
             ]
         )
@@ -1808,10 +1902,18 @@ class ZeroLogViewer:
             logs = []
             columns = set()
             
+            # Check if file is gzipped
+            is_gzipped = filename.endswith('.gz')
+            
             # Read and parse JSONL file with streaming for large files
-            with open(filename, 'r', encoding='utf-8') as f:
+            if is_gzipped:
+                file_handle = gzip.open(filename, 'rt', encoding='utf-8')
+            else:
+                file_handle = open(filename, 'r', encoding='utf-8')
+            
+            try:
                 line_num = 0
-                for line in f:
+                for line in file_handle:
                     line = line.strip()
                     if line:
                         try:
@@ -1830,6 +1932,8 @@ class ZeroLogViewer:
                                 ))
                         except json.JSONDecodeError as e:
                             print(f"Warning: Skipping invalid JSON on line {line_num}: {e}")
+            finally:
+                file_handle.close()
             
             if not logs:
                 self.root.after(0, lambda: messagebox.showwarning("No Data", "No valid log entries found in the file."))
@@ -1921,10 +2025,18 @@ class ZeroLogViewer:
                     f"Loading file {idx + 1}/{len(filenames)}: {os.path.basename(f)}..."
                 ))
                 
+                # Check if file is gzipped
+                is_gzipped = filename.endswith('.gz')
+                
                 # Read and parse JSONL file
-                with open(filename, 'r', encoding='utf-8') as f:
+                if is_gzipped:
+                    file_handle = gzip.open(filename, 'rt', encoding='utf-8')
+                else:
+                    file_handle = open(filename, 'r', encoding='utf-8')
+                
+                try:
                     line_num = 0
-                    for line in f:
+                    for line in file_handle:
                         line = line.strip()
                         if line:
                             try:
@@ -1943,6 +2055,8 @@ class ZeroLogViewer:
                                     ))
                             except json.JSONDecodeError as e:
                                 print(f"Warning: Skipping invalid JSON in {filename} on line {line_num}: {e}")
+                finally:
+                    file_handle.close()
             
             if not all_logs:
                 self.root.after(0, lambda: messagebox.showwarning("No Data", "No valid log entries found in the files."))
