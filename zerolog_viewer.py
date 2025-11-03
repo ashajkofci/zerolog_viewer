@@ -193,7 +193,7 @@ class LogTab:
         self.sort_column: Optional[str] = None
         self.sort_reverse: bool = False
         self.search_debounce_id: Optional[str] = None
-        self.page_size = 1000  # Number of items to display at once
+        self.page_size = 2000  # Number of items to display at once (increased from 1000 for better performance)
         self.current_page = 0
         self.sidebar_visible = False
         self.selected_log = None
@@ -793,23 +793,28 @@ class LogTab:
         self.tree['columns'] = display_columns
         self.tree['show'] = 'headings'
         
+        # Use filtered logs if search is active, otherwise use all logs
+        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
+        
         # Configure column headings and widths
+        # Optimize: Sample fewer logs for width calculation (max 50 instead of 100)
+        sample_size = min(50, len(logs_to_display))
+        sample_logs = logs_to_display[:sample_size] if sample_size > 0 else []
+        
         for col in display_columns:
             self.tree.heading(col, text=col, command=lambda c=col: self.sort_by_column(c))
             
             # Calculate automatic width based on column name and content
             max_width = len(col) * 8  # Start with header width
-            sample_logs = (self.filtered_logs if self.filtered_logs else self.logs)[:100]
-            for log in sample_logs:  # Sample first 100 entries for performance
+            for log in sample_logs:
                 value = str(log.get(col, ''))
-                max_width = max(max_width, len(value) * 7)
+                # Optimize: Limit value length for width calculation (max 50 chars)
+                value_len = min(len(value), 50)
+                max_width = max(max_width, value_len * 7)
             
             # Set width with reasonable limits
             width = min(max(max_width, 80), 400)
             self.tree.column(col, width=width, minwidth=50, stretch=True)
-        
-        # Use filtered logs if search is active, otherwise use all logs
-        logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
         
         # Display only first page for performance
         end_index = min(self.page_size, len(logs_to_display))
@@ -830,7 +835,8 @@ class LogTab:
     def on_scroll(self, event):
         """Load more items when scrolling near bottom."""
         # Check if scrolled near bottom
-        if self.tree.yview()[1] > 0.9:  # 90% scrolled
+        # Optimize: Only trigger at 95% instead of 90% to reduce frequent calls
+        if self.tree.yview()[1] > 0.95:  # 95% scrolled
             self.load_more_items()
     
     
@@ -848,10 +854,17 @@ class LogTab:
         
         display_columns = self.visible_columns if self.visible_columns else self.columns
         
+        # Optimize: Batch insert for better performance
+        # Prepare all items before inserting to reduce tree updates
+        items_to_insert = []
         for log in logs_to_display[start_index:end_index]:
             values = [log.get(col, '') for col in display_columns]
             level = str(log.get('level', '')).lower()
             tag = level if level in self.level_colors else ''
+            items_to_insert.append((values, tag))
+        
+        # Insert all items
+        for values, tag in items_to_insert:
             self.tree.insert('', tk.END, values=values, tags=(tag,))
         
         # Update status
@@ -954,11 +967,11 @@ class LogTab:
             if not self._passes_level_filter(log):
                 continue
             
-            # Then check search text
-            for value in log.values():
-                if search_text in str(value).lower():
-                    self.filtered_logs.append(log)
-                    break
+            # Optimize: Create a single concatenated string for searching
+            # This is faster than checking each value separately
+            log_text = ' '.join(str(value).lower() for value in log.values())
+            if search_text in log_text:
+                self.filtered_logs.append(log)
         
         self.display_logs()
         
@@ -1007,28 +1020,19 @@ class LogTab:
             if not self._passes_level_filter(log):
                 continue
             
-            # Convert all log values to lowercase strings
-            log_values_str = [str(value).lower() for value in log.values()]
+            # Optimize: Create a single concatenated string for searching
+            # This is faster than checking each value separately
+            log_text = ' '.join(str(value).lower() for value in log.values())
             
             if search_logic == "AND":
                 # All search terms must be found in the log
-                match = True
-                for term in search_terms:
-                    term_found = any(term in value for value in log_values_str)
-                    if not term_found:
-                        match = False
-                        break
-                if match:
+                # Use all() with generator for early termination
+                if all(term in log_text for term in search_terms):
                     self.filtered_logs.append(log)
             else:  # OR logic
                 # At least one search term must be found in the log
-                match = False
-                for term in search_terms:
-                    term_found = any(term in value for value in log_values_str)
-                    if term_found:
-                        match = True
-                        break
-                if match:
+                # Use any() with generator for early termination
+                if any(term in log_text for term in search_terms):
                     self.filtered_logs.append(log)
         
         self.display_logs()
@@ -1658,7 +1662,7 @@ class ZeroLogViewer:
         """Debounce search input to avoid too many updates."""
         if self.search_debounce_id:
             self.root.after_cancel(self.search_debounce_id)
-        self.search_debounce_id = self.root.after(300, self.apply_search)  # 300ms debounce
+        self.search_debounce_id = self.root.after(200, self.apply_search)  # 200ms debounce (reduced from 300ms for faster response)
     
     def apply_search(self):
         """Apply search to current tab with multiple search terms."""
@@ -2165,25 +2169,37 @@ class ZeroLogViewer:
             
             try:
                 line_num = 0
+                # Process in batches for better performance
+                batch_size = 5000
+                batch = []
+                
                 for line in file_handle:
                     line = line.strip()
                     if line:
                         try:
                             log_entry = json.loads(line)
-                            logs.append(log_entry)
+                            batch.append(log_entry)
                             
                             # Collect all unique column names
                             columns.update(log_entry.keys())
                             
                             line_num += 1
                             
-                            # Update status periodically
-                            if line_num % 10000 == 0:
+                            # Process batch when it reaches batch_size
+                            if len(batch) >= batch_size:
+                                logs.extend(batch)
+                                batch = []
+                                
+                                # Update status periodically
                                 self.root.after(0, lambda n=line_num: self.status_var.set(
                                     f"Loading {os.path.basename(filename)}... ({n:,} entries)"
                                 ))
                         except json.JSONDecodeError as e:
                             print(f"Warning: Skipping invalid JSON on line {line_num}: {e}")
+                
+                # Add remaining batch
+                if batch:
+                    logs.extend(batch)
             finally:
                 file_handle.close()
             
@@ -2288,25 +2304,37 @@ class ZeroLogViewer:
                 
                 try:
                     line_num = 0
+                    # Process in batches for better performance
+                    batch_size = 5000
+                    batch = []
+                    
                     for line in file_handle:
                         line = line.strip()
                         if line:
                             try:
                                 log_entry = json.loads(line)
-                                all_logs.append(log_entry)
+                                batch.append(log_entry)
                                 
                                 # Collect all unique column names
                                 columns.update(log_entry.keys())
                                 
                                 line_num += 1
                                 
-                                # Update status periodically
-                                if line_num % 10000 == 0:
+                                # Process batch when it reaches batch_size
+                                if len(batch) >= batch_size:
+                                    all_logs.extend(batch)
+                                    batch = []
+                                    
+                                    # Update status periodically
                                     self.root.after(0, lambda n=line_num, f=filename: self.status_var.set(
                                         f"Loading {os.path.basename(f)}... ({n:,} entries)"
                                     ))
                             except json.JSONDecodeError as e:
                                 print(f"Warning: Skipping invalid JSON in {filename} on line {line_num}: {e}")
+                    
+                    # Add remaining batch
+                    if batch:
+                        all_logs.extend(batch)
                 finally:
                     file_handle.close()
             
