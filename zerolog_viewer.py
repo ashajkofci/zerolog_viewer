@@ -1919,7 +1919,7 @@ class ZeroLogViewer:
         # Center dialog over parent window
         dialog.update_idletasks()
         width = 450
-        height = 350
+        height = 400
         x = self.root.winfo_x() + (self.root.winfo_width() // 2) - (width // 2)
         y = self.root.winfo_y() + (self.root.winfo_height() // 2) - (height // 2)
         dialog.geometry(f"{width}x{height}+{x}+{y}")
