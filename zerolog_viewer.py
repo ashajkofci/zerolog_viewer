@@ -179,6 +179,12 @@ class LogTab:
         'panic': 4  # Same as fatal
     }
     
+    # Performance-related constants
+    PAGE_SIZE = 2000  # Number of items to display at once
+    SAMPLE_SIZE_FOR_WIDTH_CALCULATION = 50  # Sample size for column width calculation
+    MAX_VALUE_LENGTH_FOR_WIDTH_CALC = 50  # Max value length to consider for width
+    SCROLL_LOAD_THRESHOLD = 0.95  # Scroll position to trigger loading more items
+    
     def __init__(self, parent_notebook: ttk.Notebook, filename: str, app_instance):
         """Initialize a log tab."""
         self.parent_notebook = parent_notebook
@@ -193,7 +199,7 @@ class LogTab:
         self.sort_column: Optional[str] = None
         self.sort_reverse: bool = False
         self.search_debounce_id: Optional[str] = None
-        self.page_size = 2000  # Number of items to display at once (increased from 1000 for better performance)
+        self.page_size = self.PAGE_SIZE
         self.current_page = 0
         self.sidebar_visible = False
         self.selected_log = None
@@ -797,8 +803,8 @@ class LogTab:
         logs_to_display = self.filtered_logs if self.filtered_logs else self.logs
         
         # Configure column headings and widths
-        # Optimize: Sample fewer logs for width calculation (max 50 instead of 100)
-        sample_size = min(50, len(logs_to_display))
+        # Optimize: Sample fewer logs for width calculation
+        sample_size = min(self.SAMPLE_SIZE_FOR_WIDTH_CALCULATION, len(logs_to_display))
         sample_logs = logs_to_display[:sample_size] if sample_size > 0 else []
         
         for col in display_columns:
@@ -808,8 +814,8 @@ class LogTab:
             max_width = len(col) * 8  # Start with header width
             for log in sample_logs:
                 value = str(log.get(col, ''))
-                # Optimize: Limit value length for width calculation (max 50 chars)
-                value_len = min(len(value), 50)
+                # Optimize: Limit value length for width calculation
+                value_len = min(len(value), self.MAX_VALUE_LENGTH_FOR_WIDTH_CALC)
                 max_width = max(max_width, value_len * 7)
             
             # Set width with reasonable limits
@@ -835,8 +841,8 @@ class LogTab:
     def on_scroll(self, event):
         """Load more items when scrolling near bottom."""
         # Check if scrolled near bottom
-        # Optimize: Only trigger at 95% instead of 90% to reduce frequent calls
-        if self.tree.yview()[1] > 0.95:  # 95% scrolled
+        # Optimize: Only trigger at threshold to reduce frequent calls
+        if self.tree.yview()[1] > self.SCROLL_LOAD_THRESHOLD:
             self.load_more_items()
     
     
@@ -1322,6 +1328,8 @@ class ZeroLogViewer:
     
     # Constants
     MIN_SEARCH_FIELDS = 1  # Minimum number of search fields to maintain
+    SEARCH_DEBOUNCE_MS = 200  # Search debounce delay in milliseconds
+    BATCH_SIZE = 5000  # Batch size for file parsing
     
     def __init__(self, root):
         """Initialize the ZeroLog Viewer application."""
@@ -1662,7 +1670,7 @@ class ZeroLogViewer:
         """Debounce search input to avoid too many updates."""
         if self.search_debounce_id:
             self.root.after_cancel(self.search_debounce_id)
-        self.search_debounce_id = self.root.after(200, self.apply_search)  # 200ms debounce (reduced from 300ms for faster response)
+        self.search_debounce_id = self.root.after(self.SEARCH_DEBOUNCE_MS, self.apply_search)
     
     def apply_search(self):
         """Apply search to current tab with multiple search terms."""
@@ -2170,7 +2178,6 @@ class ZeroLogViewer:
             try:
                 line_num = 0
                 # Process in batches for better performance
-                batch_size = 5000
                 batch = []
                 
                 for line in file_handle:
@@ -2186,7 +2193,7 @@ class ZeroLogViewer:
                             line_num += 1
                             
                             # Process batch when it reaches batch_size
-                            if len(batch) >= batch_size:
+                            if len(batch) >= self.BATCH_SIZE:
                                 logs.extend(batch)
                                 batch = []
                                 
@@ -2305,7 +2312,6 @@ class ZeroLogViewer:
                 try:
                     line_num = 0
                     # Process in batches for better performance
-                    batch_size = 5000
                     batch = []
                     
                     for line in file_handle:
@@ -2321,7 +2327,7 @@ class ZeroLogViewer:
                                 line_num += 1
                                 
                                 # Process batch when it reaches batch_size
-                                if len(batch) >= batch_size:
+                                if len(batch) >= self.BATCH_SIZE:
                                     all_logs.extend(batch)
                                     batch = []
                                     
