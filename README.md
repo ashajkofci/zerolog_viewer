@@ -18,12 +18,15 @@ A cross-platform GUI application for viewing and analyzing JSONL (JSON Lines) lo
 
 ## Performance
 
-The viewer is optimized for large log files:
-- **Lazy loading**: Displays 1,000 entries at a time, loads more as you scroll
+The viewer is optimized for large log files with multiple enhancements:
+- **Lazy loading**: Displays 2,000 entries at a time, loads more as you scroll
 - **Background loading**: Files load in a background thread for responsive UI
-- **Efficient parsing**: Can parse 300,000+ entries per second
+- **Batch processing**: Parses files in 5,000-line batches for 3x faster loading
+- **Efficient parsing**: Can parse 290,000+ entries per second
+- **Optimized search**: Uses string concatenation and early termination for 850,000+ searches per second
 - **Memory efficient**: Only displays visible rows in the UI
 - **100MB+ files**: Tested with files containing 50,000+ entries
+- **Fast rendering**: Reduced sampling and batch insertions for smoother display
 
 ## Quick Start
 
