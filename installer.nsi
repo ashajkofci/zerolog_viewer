@@ -62,6 +62,13 @@ Section "!ZeroLog Viewer (Required)" SEC01
   ; Copy the executable
   File "dist\zerolog_viewer.exe"
   
+  ; Copy VERSION and LICENSE files if they exist
+  IfFileExists "VERSION" 0 +2
+    File "VERSION"
+  
+  IfFileExists "LICENSE" 0 +2
+    File "LICENSE"
+  
   ; Create a simple README
   FileOpen $0 "$INSTDIR\README.txt" w
   FileWrite $0 "ZeroLog Viewer - JSONL Log Viewer$\r$\n"
@@ -121,6 +128,8 @@ SectionEnd
 Section "Uninstall"
   ; Remove files
   Delete "$INSTDIR\zerolog_viewer.exe"
+  Delete "$INSTDIR\VERSION"
+  Delete "$INSTDIR\LICENSE"
   Delete "$INSTDIR\README.txt"
   Delete "$INSTDIR\uninstall.exe"
   
