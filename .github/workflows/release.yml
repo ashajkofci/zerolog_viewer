@@ -293,7 +293,9 @@ jobs:
         # PyInstaller spec file creates the bundle, but we need to update Info.plist
         if [ -d "dist/ZeroLog Viewer.app" ]; then
           # Update version in Info.plist
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.get_version.outputs.version }}" "dist/ZeroLog Viewer.app/Contents/Info.plist"
+          # Use Add instead of Set because CFBundleVersion may not exist in PyInstaller-generated Info.plist
+          /usr/libexec/PlistBuddy -c "Add :CFBundleVersion string ${{ steps.get_version.outputs.version }}" "dist/ZeroLog Viewer.app/Contents/Info.plist" 2>/dev/null || \
+            /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${{ steps.get_version.outputs.version }}" "dist/ZeroLog Viewer.app/Contents/Info.plist"
           /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${{ steps.get_version.outputs.version }}" "dist/ZeroLog Viewer.app/Contents/Info.plist"
         else
           # Fallback: create app bundle manually
