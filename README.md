@@ -99,7 +99,7 @@ pyinstaller zerolog_viewer.spec
 dist\zerolog_viewer.exe  # Windows
 ```
 
-**Note:** The `zerolog_viewer.spec` file is used to bundle resource files (VERSION and LICENSE) with the executable. If you build manually without the spec file, version information may not display correctly.
+**Note:** The `zerolog_viewer.spec` file is used to bundle resource files (VERSION and LICENSE) with the executable. If you build manually without the spec file, version information will show as "Unknown" and license information will not be available in the About dialog.
 
 ## Usage
 
