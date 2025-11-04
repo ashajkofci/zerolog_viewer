@@ -56,7 +56,12 @@ Download the latest release for your platform from the [Releases](https://github
 - **Linux DEB**: `zerolog-viewer-X.X.X-amd64.deb`
   - Install with: `sudo dpkg -i zerolog-viewer-X.X.X-amd64.deb`
   - Includes desktop integration
-- **macOS DMG**: `zerolog-viewer-X.X.X.dmg`
+- **macOS DMG (Apple Silicon / ARM64)**: `zerolog-viewer-X.X.X-arm64.dmg`
+  - For Macs with M1, M2, M3, M4 chips (Apple Silicon)
+  - Mount the DMG and drag to Applications folder
+  - Includes proper app bundle
+- **macOS DMG (Intel / x86_64)**: `zerolog-viewer-X.X.X-x86_64.dmg`
+  - For older Intel-based Macs
   - Mount the DMG and drag to Applications folder
   - Includes proper app bundle
 - **Windows Installer**: `zerolog-viewer-X.X.X-installer.exe`
