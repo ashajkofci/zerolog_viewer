@@ -90,14 +90,16 @@ python zerolog_viewer.py
 # Install PyInstaller and dependencies
 pip install -r requirements.txt
 
-# Build executable
-pyinstaller --onefile --windowed --name zerolog_viewer zerolog_viewer.py
+# Build executable using the spec file (recommended - includes VERSION and LICENSE files)
+pyinstaller zerolog_viewer.spec
 
 # Run the executable
 ./dist/zerolog_viewer  # Linux/Mac
 # or
 dist\zerolog_viewer.exe  # Windows
 ```
+
+**Note:** The `zerolog_viewer.spec` file is used to bundle resource files (VERSION and LICENSE) with the executable. If you build manually without the spec file, version information will show as "Unknown" and license information will not be available in the About dialog.
 
 ## Usage
 
