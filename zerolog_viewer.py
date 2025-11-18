@@ -905,6 +905,10 @@ class LogTab:
         
         self.logs.sort(key=sort_key, reverse=self.sort_reverse)
         
+        # Also sort filtered_logs if it exists (for merged files with filters)
+        if self.filtered_logs:
+            self.filtered_logs.sort(key=sort_key, reverse=self.sort_reverse)
+        
         # Re-display
         self.display_logs()
         
