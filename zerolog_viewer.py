@@ -124,6 +124,11 @@ class ConfigManager:
         return ConfigManager.get_config_dir() / "config.json"
     
     @staticmethod
+    def get_session_file() -> Path:
+        """Get the session state file path."""
+        return ConfigManager.get_config_dir() / "session.json"
+    
+    @staticmethod
     def get_default_config() -> Dict[str, Any]:
         """Get the default configuration."""
         return {
@@ -163,6 +168,30 @@ class ConfigManager:
                 json.dump(config, f, indent=2)
         except Exception as e:
             print(f"Warning: Failed to save config: {e}")
+    
+    @staticmethod
+    def load_session() -> Dict[str, Any]:
+        """Load session state from file."""
+        session_file = ConfigManager.get_session_file()
+        if session_file.exists():
+            try:
+                with open(session_file, 'r') as f:
+                    return json.load(f)
+            except Exception as e:
+                print(f"Warning: Failed to load session: {e}")
+        
+        # Return empty session
+        return {"tabs": []}
+    
+    @staticmethod
+    def save_session(session: Dict[str, Any]):
+        """Save session state to file."""
+        try:
+            session_file = ConfigManager.get_session_file()
+            with open(session_file, 'w') as f:
+                json.dump(session, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Failed to save session: {e}")
 
 
 class LogTab:
@@ -185,11 +214,19 @@ class LogTab:
     MAX_VALUE_LENGTH_FOR_WIDTH_CALC = 50  # Max value length to consider for width
     SCROLL_LOAD_THRESHOLD = 0.95  # Scroll position to trigger loading more items
     
-    def __init__(self, parent_notebook: ttk.Notebook, filename: str, app_instance):
-        """Initialize a log tab."""
+    def __init__(self, parent_notebook: ttk.Notebook, filename: str, app_instance, merged_files: Optional[List[str]] = None):
+        """Initialize a log tab.
+        
+        Args:
+            parent_notebook: The notebook widget to add the tab to
+            filename: The filename to display (can be a path or a merged name)
+            app_instance: The main app instance
+            merged_files: Optional list of file paths if this is a merged tab
+        """
         self.parent_notebook = parent_notebook
         self.filename = filename
         self.app = app_instance
+        self.merged_files = merged_files  # List of file paths if merged, None otherwise
         self.logs: List[Dict[str, Any]] = []
         self.filtered_logs: List[Dict[str, Any]] = []
         self.all_logs: List[Dict[str, Any]] = []  # Store all logs before date filtering
@@ -1370,6 +1407,9 @@ class ZeroLogViewer:
         # Save configuration on window close
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
+        # Restore previous session (open tabs) after UI is created
+        self.root.after(100, self.restore_session)
+        
     def _create_ui(self):
         """Create the user interface."""
         # Menu bar
@@ -1624,6 +1664,8 @@ class ZeroLogViewer:
             self.tabs.pop(tab_index)
             if not self.tabs:
                 self.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
+            # Save session after closing a tab
+            self.save_session()
     
     def get_current_tab(self) -> Optional[LogTab]:
         """Get the currently active tab."""
@@ -1644,6 +1686,8 @@ class ZeroLogViewer:
             self.tabs.remove(current_tab)
             if not self.tabs:
                 self.status_var.set("Ready. Open a JSONL file or drag and drop files here.")
+            # Save session after closing a tab
+            self.save_session()
     
     def add_search_field(self):
         """Add a new search field to the search container."""
@@ -2050,7 +2094,75 @@ class ZeroLogViewer:
         # Save window geometry
         self.config["window_geometry"] = self.root.geometry()
         ConfigManager.save_config(self.config)
+        
+        # Save session state
+        self.save_session()
+        
         self.root.destroy()
+    
+    def save_session(self):
+        """Save current session state (open tabs) to file."""
+        try:
+            session = {"tabs": []}
+            
+            for tab in self.tabs:
+                tab_info = {}
+                
+                if tab.merged_files:
+                    # This is a merged tab
+                    tab_info["type"] = "merged"
+                    tab_info["files"] = tab.merged_files
+                else:
+                    # This is a single file tab
+                    tab_info["type"] = "single"
+                    tab_info["file"] = tab.filename
+                
+                session["tabs"].append(tab_info)
+            
+            ConfigManager.save_session(session)
+        except Exception as e:
+            print(f"Warning: Failed to save session: {e}")
+    
+    def restore_session(self):
+        """Restore previous session (open tabs) from saved state."""
+        try:
+            session = ConfigManager.load_session()
+            tabs = session.get("tabs", [])
+            
+            if not tabs:
+                return  # No session to restore
+            
+            for tab_info in tabs:
+                tab_type = tab_info.get("type")
+                
+                if tab_type == "merged":
+                    # Restore merged tab
+                    files = tab_info.get("files", [])
+                    # Check if all files exist before restoring
+                    existing_files = [f for f in files if os.path.isfile(f)]
+                    
+                    if existing_files:
+                        # Only restore if at least one file exists
+                        if len(existing_files) == len(files):
+                            # All files exist, restore normally
+                            self.load_merged_files(files, silent=True)
+                        elif len(existing_files) == 1:
+                            # Only one file exists, load it as single file
+                            self.load_file(existing_files[0], silent=True)
+                        else:
+                            # Some files exist, merge them
+                            self.load_merged_files(existing_files, silent=True)
+                    # If no files exist, silently skip (no error)
+                    
+                elif tab_type == "single":
+                    # Restore single file tab
+                    filename = tab_info.get("file")
+                    if filename and os.path.isfile(filename):
+                        self.load_file(filename, silent=True)
+                    # If file doesn't exist, silently skip (no error)
+        
+        except Exception as e:
+            print(f"Warning: Failed to restore session: {e}")
     
     def open_file(self):
         """Open a JSONL file dialog and load the file."""
@@ -2142,11 +2254,16 @@ class ZeroLogViewer:
             for filename in filenames:
                 self.load_file(filename)
     
-    def load_file(self, filename: str):
-        """Load and parse a JSONL file in a new tab."""
+    def load_file(self, filename: str, silent: bool = False):
+        """Load and parse a JSONL file in a new tab.
+        
+        Args:
+            filename: Path to the file to load
+            silent: If True, skip status messages during restore (default: False)
+        """
         # Check if file is already open
         for tab in self.tabs:
-            if tab.filename == filename:
+            if tab.filename == filename and not tab.merged_files:
                 # Switch to existing tab
                 tab_index = self.tabs.index(tab)
                 self.notebook.select(tab_index)
@@ -2157,14 +2274,15 @@ class ZeroLogViewer:
         self.tabs.append(tab)
         
         # Load file in background thread
-        self.status_var.set(f"Loading {os.path.basename(filename)}...")
-        self.root.update_idletasks()
+        if not silent:
+            self.status_var.set(f"Loading {os.path.basename(filename)}...")
+            self.root.update_idletasks()
         
-        thread = threading.Thread(target=self._load_file_thread, args=(tab, filename))
+        thread = threading.Thread(target=self._load_file_thread, args=(tab, filename, silent))
         thread.daemon = True
         thread.start()
     
-    def _load_file_thread(self, tab: LogTab, filename: str):
+    def _load_file_thread(self, tab: LogTab, filename: str, silent: bool = False):
         """Load file in background thread for better performance."""
         try:
             logs = []
@@ -2201,10 +2319,11 @@ class ZeroLogViewer:
                                 logs.extend(batch)
                                 batch = []
                                 
-                                # Update status periodically
-                                self.root.after(0, lambda n=line_num: self.status_var.set(
-                                    f"Loading {os.path.basename(filename)}... ({n:,} entries)"
-                                ))
+                                # Update status periodically (skip if silent)
+                                if not silent:
+                                    self.root.after(0, lambda n=line_num: self.status_var.set(
+                                        f"Loading {os.path.basename(filename)}... ({n:,} entries)"
+                                    ))
                         except json.JSONDecodeError as e:
                             print(f"Warning: Skipping invalid JSON on line {line_num}: {e}")
                 
@@ -2215,7 +2334,8 @@ class ZeroLogViewer:
                 file_handle.close()
             
             if not logs:
-                self.root.after(0, lambda: messagebox.showwarning("No Data", "No valid log entries found in the file."))
+                if not silent:
+                    self.root.after(0, lambda: messagebox.showwarning("No Data", "No valid log entries found in the file."))
                 self.root.after(0, lambda: self.close_current_tab())
                 return
             
@@ -2250,19 +2370,28 @@ class ZeroLogViewer:
             tab.logs.sort(key=lambda x: x.get('time', ''))
             
             # Display the logs on main thread
-            self.root.after(0, lambda: self._finalize_load(tab))
+            self.root.after(0, lambda: self._finalize_load(tab, silent))
             
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to load file: {str(e)}"))
+            if not silent:
+                self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to load file: {str(e)}"))
             self.root.after(0, lambda: self.close_current_tab())
     
-    def _finalize_load(self, tab: LogTab):
+    def _finalize_load(self, tab: LogTab, silent: bool = False):
         """Finalize loading on the main thread."""
         tab.display_logs()
-        self.status_var.set(f"Loaded {len(tab.logs):,} log entries from {os.path.basename(tab.filename)}")
+        if not silent:
+            self.status_var.set(f"Loaded {len(tab.logs):,} log entries from {os.path.basename(tab.filename)}")
+        # Save session after loading a new file
+        self.save_session()
     
-    def load_merged_files(self, filenames: List[str]):
-        """Load and merge multiple files into a single tab."""
+    def load_merged_files(self, filenames: List[str], silent: bool = False):
+        """Load and merge multiple files into a single tab.
+        
+        Args:
+            filenames: List of file paths to merge
+            silent: If True, skip status messages during restore (default: False)
+        """
         if not filenames:
             return
         
@@ -2274,35 +2403,37 @@ class ZeroLogViewer:
         
         # Check if merged tab already exists with this name
         for tab in self.tabs:
-            if tab.filename == merged_name:
+            if tab.filename == merged_name and tab.merged_files == filenames:
                 # Switch to existing tab
                 tab_index = self.tabs.index(tab)
                 self.notebook.select(tab_index)
                 return
         
-        # Create new tab
-        tab = LogTab(self.notebook, merged_name, self)
+        # Create new tab with merged_files list
+        tab = LogTab(self.notebook, merged_name, self, merged_files=filenames)
         self.tabs.append(tab)
         
         # Load files in background thread
-        self.status_var.set(f"Loading and merging {len(filenames)} files...")
-        self.root.update_idletasks()
+        if not silent:
+            self.status_var.set(f"Loading and merging {len(filenames)} files...")
+            self.root.update_idletasks()
         
-        thread = threading.Thread(target=self._load_merged_files_thread, args=(tab, filenames))
+        thread = threading.Thread(target=self._load_merged_files_thread, args=(tab, filenames, silent))
         thread.daemon = True
         thread.start()
     
-    def _load_merged_files_thread(self, tab: LogTab, filenames: List[str]):
+    def _load_merged_files_thread(self, tab: LogTab, filenames: List[str], silent: bool = False):
         """Load and merge multiple files in background thread."""
         try:
             all_logs = []
             columns = set()
             
             for file_idx, filename in enumerate(filenames):
-                # Update status
-                self.root.after(0, lambda f=filename, idx=file_idx: self.status_var.set(
-                    f"Loading file {idx + 1}/{len(filenames)}: {os.path.basename(f)}..."
-                ))
+                # Update status (skip if silent)
+                if not silent:
+                    self.root.after(0, lambda f=filename, idx=file_idx: self.status_var.set(
+                        f"Loading file {idx + 1}/{len(filenames)}: {os.path.basename(f)}..."
+                    ))
                 
                 # Check if file is gzipped
                 is_gzipped = filename.endswith('.gz')
@@ -2335,10 +2466,11 @@ class ZeroLogViewer:
                                     all_logs.extend(batch)
                                     batch = []
                                     
-                                    # Update status periodically
-                                    self.root.after(0, lambda n=line_num, f=filename: self.status_var.set(
-                                        f"Loading {os.path.basename(f)}... ({n:,} entries)"
-                                    ))
+                                    # Update status periodically (skip if silent)
+                                    if not silent:
+                                        self.root.after(0, lambda n=line_num, f=filename: self.status_var.set(
+                                            f"Loading {os.path.basename(f)}... ({n:,} entries)"
+                                        ))
                             except json.JSONDecodeError as e:
                                 print(f"Warning: Skipping invalid JSON in {filename} on line {line_num}: {e}")
                     
@@ -2349,7 +2481,8 @@ class ZeroLogViewer:
                     file_handle.close()
             
             if not all_logs:
-                self.root.after(0, lambda: messagebox.showwarning("No Data", "No valid log entries found in the files."))
+                if not silent:
+                    self.root.after(0, lambda: messagebox.showwarning("No Data", "No valid log entries found in the files."))
                 self.root.after(0, lambda: self.close_current_tab())
                 return
             
@@ -2381,16 +2514,20 @@ class ZeroLogViewer:
             tab.logs.sort(key=lambda x: x.get('time', ''))
             
             # Display on main thread
-            self.root.after(0, lambda: self._finalize_merged_load(tab, len(filenames)))
+            self.root.after(0, lambda: self._finalize_merged_load(tab, len(filenames), silent))
             
         except Exception as e:
-            self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to load files: {str(e)}"))
+            if not silent:
+                self.root.after(0, lambda: messagebox.showerror("Error", f"Failed to load files: {str(e)}"))
             self.root.after(0, lambda: self.close_current_tab())
     
-    def _finalize_merged_load(self, tab: LogTab, file_count: int):
+    def _finalize_merged_load(self, tab: LogTab, file_count: int, silent: bool = False):
         """Finalize merged load on the main thread."""
         tab.display_logs()
-        self.status_var.set(f"Loaded and merged {len(tab.logs):,} log entries from {file_count} files")
+        if not silent:
+            self.status_var.set(f"Loaded and merged {len(tab.logs):,} log entries from {file_count} files")
+        # Save session after loading merged files
+        self.save_session()
     
     def export_displayed_results(self):
         """Export displayed results from the current tab."""
